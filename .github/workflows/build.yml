@@ -22,6 +22,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
+      - name: Diagnostika
+        run: |
+          find . -path ./.git -prune -o -type f -print | sort
+          echo "--- settings.gradle"; cat settings.gradle
+          echo "--- app/build.gradle"; cat app/build.gradle
       - run: gradle assembleDebug --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
