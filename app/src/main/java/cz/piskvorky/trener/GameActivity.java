@@ -81,6 +81,9 @@ public class GameActivity extends Activity {
         row.addView(button("Tip", new View.OnClickListener() {
             public void onClick(View v) { hint(); }
         }));
+        row.addView(button("Rozbor", new View.OnClickListener() {
+            public void onClick(View v) { openReview(); }
+        }));
         row.addView(button("Nová", new View.OnClickListener() {
             public void onClick(View v) { newGame(); }
         }));
@@ -90,7 +93,7 @@ public class GameActivity extends Activity {
         root.addView(row);
 
         setContentView(root);
-        newGame();
+        if (getIntent().getIntArrayExtra("stones") != null) startFromPosition(); else newGame();
     }
 
     @Override
@@ -113,6 +116,34 @@ public class GameActivity extends Activity {
     }
 
     private static String colorName(int c) { return c == Board.BLACK ? "černý" : "bílý"; }
+
+    // ---------------------------------------------------------------- start z pozice, rozbor
+
+    /** Spuštění z volné desky: pozice, strana na tahu a barva hráče přijdou v Intentu. */
+    private void startFromPosition() {
+        gen++;
+        busy = false;
+        int[] stones = getIntent().getIntArrayExtra("stones");
+        board = new Board(N);
+        board.exactFive = set.rules == 1;
+        for (int code : stones) board.placeAs(code / 4, code % 4);
+        board.setTurn(getIntent().getIntExtra("stm", Board.BLACK));
+        humanColor = getIntent().getIntExtra("human", Board.BLACK);
+        view.setBoard(board);
+        info.setText("");
+        startPlay();
+    }
+
+    /** Otevře volnou desku s touto partií a spustí rozbor. */
+    private void openReview() {
+        if (board.cnt == 0) return;
+        int[] stones = new int[board.cnt];
+        for (int k = 0; k < board.cnt; k++) stones[k] = board.hist[k] * 4 + board.histCol[k];
+        android.content.Intent it = new android.content.Intent(this, LabActivity.class);
+        it.putExtra("stones", stones);
+        it.putExtra("review", true);
+        startActivity(it);
+    }
 
     // ---------------------------------------------------------------- nová hra
 
@@ -241,7 +272,7 @@ public class GameActivity extends Activity {
         final long ms = Settings.LEVEL_MS[set.level];
         pool.execute(new Runnable() {
             public void run() {
-                final Engine.Result r = engine.think(snap, ms, 14);
+                final Engine.Result r = engine.think(snap, ms, 30);
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
@@ -313,11 +344,8 @@ public class GameActivity extends Activity {
         String[] items = canExtend
                 ? new String[]{"Hrát černého", "Hrát bílého", "Přidat 2 kameny (bílý + černý)"}
                 : new String[]{"Hrát černého", "Hrát bílého"};
-        String msg = "Na desce je " + board.cnt + " kamenů. Bílý je po volbě na tahu."
-                + (canExtend ? "" : "");
         new AlertDialog.Builder(this)
                 .setTitle(board.cnt == 3 ? "Soupeř položil 3 kameny" : "Soupeř přidal 2 kameny")
-                .setMessage(msg)
                 .setCancelable(false)
                 .setItems(items, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
@@ -363,10 +391,10 @@ public class GameActivity extends Activity {
         final int g = gen;
         final Board snap = board.copy();
         final int stm = board.turn();
-        final long ms = Math.max(1500, Settings.LEVEL_MS[set.level]);
+        final long ms = Math.max(3000, Settings.LEVEL_MS[set.level]);
         pool.execute(new Runnable() {
             public void run() {
-                final Engine.Result r = new Engine().think(snap, ms, 14);
+                final Engine.Result r = engine.think(snap, ms, 30);
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
