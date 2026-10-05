@@ -68,6 +68,20 @@ public class MenuActivity extends Activity {
         root.addView(start);
         ((LinearLayout.LayoutParams) start.getLayoutParams()).topMargin = dp(16);
 
+        Button lab = new Button(this);
+        lab.setText("Volná deska / Analýza");
+        root.addView(lab);
+        lab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                s.level = spLevel.getSelectedItemPosition();
+                s.rules = spRules.getSelectedItemPosition();
+                s.numbers = cbNumbers.isChecked();
+                s.save(MenuActivity.this);
+                startActivity(new Intent(MenuActivity.this, LabActivity.class));
+            }
+        });
+
         final TextView fRole = roleTv, fColor = colorTv;
         spOpening.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
