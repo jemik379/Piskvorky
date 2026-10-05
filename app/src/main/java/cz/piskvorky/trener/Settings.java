@@ -8,14 +8,14 @@ final class Settings {
     static final String[] OPENING = {"Bez swapu", "Swap (klasický)", "Swap2"};
     static final String[] ROLE = {"Zahajuji já (A – kladu 3 kameny)", "Vybírám já (B – volím barvu)", "Náhodně"};
     static final String[] COLOR = {"Černý (začínám)", "Bílý", "Náhodně"};
-    static final String[] LEVEL = {"Rychlá (0,3 s)", "Normální (1 s)", "Silná (3 s)", "Maximální (8 s)"};
-    static final long[] LEVEL_MS = {300, 1000, 3000, 8000};
+    static final String[] LEVEL = {"Rychlá (0,5 s)", "Normální (2 s)", "Silná (6 s)", "Expert (15 s)", "Maximální (40 s)"};
+    static final long[] LEVEL_MS = {500, 2000, 6000, 15000, 40000};
     static final String[] RULES = {"Gomoku (pět a více)", "Přesně pět (šestka neplatí)"};
 
     int opening = 2;
     int role = 2;
     int color = 2;
-    int level = 2;
+    int level = 3;
     int rules = 0;
     boolean centerFirst = true;
     boolean numbers = true;
