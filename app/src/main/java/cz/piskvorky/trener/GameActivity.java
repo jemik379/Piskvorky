@@ -1,8 +1,6 @@
 package cz.piskvorky.trener;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -32,7 +30,9 @@ public class GameActivity extends Activity {
     private final ExecutorService pool = Executors.newSingleThreadExecutor();
 
     private BoardView view;
-    private TextView status, info;
+    private TextView status, info, choiceTitle;
+    private LinearLayout choicePanel;
+    private final Button[] choiceBtns = new Button[3];
 
     private Phase phase = Phase.OPEN_AI;
     private int toPlace;
@@ -72,6 +72,25 @@ public class GameActivity extends Activity {
         info.setPadding(dp(10), dp(4), dp(10), dp(4));
         info.setMinLines(2);
         root.addView(info);
+
+        choicePanel = new LinearLayout(this);
+        choicePanel.setOrientation(LinearLayout.VERTICAL);
+        choicePanel.setBackgroundColor(Color.rgb(255, 240, 200));
+        choicePanel.setPadding(dp(8), dp(6), dp(8), dp(6));
+        choiceTitle = new TextView(this);
+        choiceTitle.setTextSize(15);
+        choicePanel.addView(choiceTitle);
+        LinearLayout choiceRow = new LinearLayout(this);
+        choiceRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < 3; i++) {
+            choiceBtns[i] = new Button(this);
+            choiceBtns[i].setTextSize(12);
+            choiceBtns[i].setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            choiceRow.addView(choiceBtns[i]);
+        }
+        choicePanel.addView(choiceRow);
+        choicePanel.setVisibility(View.GONE);
+        root.addView(choicePanel);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -121,6 +140,7 @@ public class GameActivity extends Activity {
 
     /** Spuštění z volné desky: pozice, strana na tahu a barva hráče přijdou v Intentu. */
     private void startFromPosition() {
+        hideChoice();
         gen++;
         busy = false;
         int[] stones = getIntent().getIntArrayExtra("stones");
@@ -148,6 +168,7 @@ public class GameActivity extends Activity {
     // ---------------------------------------------------------------- nová hra
 
     private void newGame() {
+        hideChoice();
         gen++;
         busy = false;
         board = new Board(N);
@@ -337,33 +358,45 @@ public class GameActivity extends Activity {
     }
 
     /** Člověk volí barvu (po 3 kamenech AI, nebo po 5 kamenech když AI rozšířila). */
+    private void hideChoice() {
+        choicePanel.setVisibility(View.GONE);
+    }
+
     private void askHumanChoice() {
         phase = Phase.CHOOSE_HUMAN;
         status.setText("Vyber si barvu nebo možnost.");
         final boolean canExtend = set.opening == 2 && board.cnt == 3;
-        String[] items = canExtend
-                ? new String[]{"Hrát černého", "Hrát bílého", "Přidat 2 kameny (bílý + černý)"}
-                : new String[]{"Hrát černého", "Hrát bílého"};
-        new AlertDialog.Builder(this)
-                .setTitle(board.cnt == 3 ? "Soupeř položil 3 kameny" : "Soupeř přidal 2 kameny")
-                .setCancelable(false)
-                .setItems(items, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int which) {
-                        if (which == 0) {
-                            humanColor = Board.BLACK;
-                            startPlay();
-                        } else if (which == 1) {
-                            humanColor = Board.WHITE;
-                            startPlay();
-                        } else {
-                            phase = Phase.OPEN_HUMAN;
-                            toPlace = 2;
-                            refreshStatus();
-                            status.setText("Polož 2 kameny: nejdřív bílý, pak černý. Potom soupeř zvolí barvu.");
-                        }
-                    }
-                })
-                .show();
+        choiceTitle.setText(board.cnt == 3
+                ? "Soupeř položil 3 kameny – vyber si:"
+                : "Soupeř přidal 2 kameny – vyber si barvu:");
+        choiceBtns[0].setText("Hrát černého");
+        choiceBtns[1].setText("Hrát bílého");
+        choiceBtns[2].setText("Přidat 2 kameny");
+        choiceBtns[2].setVisibility(canExtend ? View.VISIBLE : View.GONE);
+        choiceBtns[0].setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                hideChoice();
+                humanColor = Board.BLACK;
+                startPlay();
+            }
+        });
+        choiceBtns[1].setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                hideChoice();
+                humanColor = Board.WHITE;
+                startPlay();
+            }
+        });
+        choiceBtns[2].setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                hideChoice();
+                phase = Phase.OPEN_HUMAN;
+                toPlace = 2;
+                refreshStatus();
+                status.setText("Polož 2 kameny: nejdřív bílý, pak černý. Potom soupeř zvolí barvu.");
+            }
+        });
+        choicePanel.setVisibility(View.VISIBLE);
     }
 
     // ---------------------------------------------------------------- zpět a tip
