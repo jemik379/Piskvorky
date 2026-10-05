@@ -18,6 +18,7 @@ public class BoardView extends View {
     private boolean showNumbers = true;
     private int hint = -1;
     private int[] winLine;
+    private int[] marks = new int[0];
 
     private final Paint bg = new Paint();
     private final Paint grid = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -41,6 +42,7 @@ public class BoardView extends View {
         board = b;
         hint = -1;
         winLine = null;
+        marks = new int[0];
         invalidate();
     }
 
@@ -51,6 +53,9 @@ public class BoardView extends View {
     void setHint(int cell) { hint = cell; invalidate(); }
 
     void setWinLine(int[] w) { winLine = w; invalidate(); }
+
+    /** Značky analýzy: pole v pořadí 1., 2., 3. nejlepší tah. */
+    void setMarks(int[] cells) { marks = cells == null ? new int[0] : cells; invalidate(); }
 
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
@@ -115,6 +120,15 @@ public class BoardView extends View {
             ring.setColor(Color.rgb(20, 160, 60));
             ring.setStrokeWidth(step * 0.12f);
             cv.drawCircle(cx, cy, r * 0.95f, ring);
+        }
+
+        int[] rankColors = {Color.rgb(20, 160, 60), Color.rgb(240, 150, 0), Color.rgb(40, 110, 220)};
+        for (int k = 0; k < marks.length && k < 3; k++) {
+            float cx = step * (marks[k] % n + 1), cy = step * (marks[k] / n + 1);
+            stone.setColor(rankColors[k]);
+            cv.drawCircle(cx, cy, r * 0.62f, stone);
+            text.setColor(Color.WHITE);
+            cv.drawText(String.valueOf(k + 1), cx, cy + step * 0.15f, text);
         }
 
         if (winLine != null) {
