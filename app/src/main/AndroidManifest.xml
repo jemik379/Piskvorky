@@ -28,6 +28,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".GamesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".LabActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
