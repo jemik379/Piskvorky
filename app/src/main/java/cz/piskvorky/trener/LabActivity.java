@@ -41,7 +41,12 @@ public class LabActivity extends Activity {
     private Button stmButton;
 
     /** Kameny: {pole, barva}. Zobrazeno je prvních `cursor`. */
-    private final ArrayList<int[]> moves = new ArrayList<int[]>();
+    private ArrayList<int[]> moves = new ArrayList<int[]>();
+    /** Větve partie: původní tahy se při změně uprostřed nemažou, vznikne nová větev. */
+    private final ArrayList<ArrayList<int[]>> lines = new ArrayList<ArrayList<int[]>>();
+    private final ArrayList<Integer> lineCursors = new ArrayList<Integer>();
+    private int line = 0, revLine = 0;
+    private Button branchButton;
     private int cursor;
     private int forcedStm;           // 0 = automaticky podle posledního kamene
     private int tool = TOOL_ALT;
@@ -70,6 +75,7 @@ public class LabActivity extends Activity {
 
         view = new BoardView(this);
         view.setShowNumbers(set.numbers);
+        view.setStyle(set.style);
         root.addView(view, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         view.setListener(new BoardView.OnCellTap() {
@@ -109,20 +115,36 @@ public class LabActivity extends Activity {
                 button("Rozbor", new View.OnClickListener() { public void onClick(View v) { review(); } }),
                 button("Chyba >", new View.OnClickListener() { public void onClick(View v) { nextMistake(); } })));
 
+        branchButton = button("Větev 1/1", new View.OnClickListener() {
+            public void onClick(View v) { switchLine((line + 1) % lines.size()); }
+        });
+        root.addView(row(
+                button("Původní", new View.OnClickListener() { public void onClick(View v) { switchLine(0); } }),
+                branchButton,
+                button("Smazat větev", new View.OnClickListener() { public void onClick(View v) { deleteBranch(); } })));
+
         stmButton = button("Na tahu", new View.OnClickListener() {
             public void onClick(View v) { toggleStm(); }
         });
         root.addView(row(
                 stmButton,
                 button("Hrát odtud", new View.OnClickListener() { public void onClick(View v) { playFromHere(); } }),
+                button("Uložit", new View.OnClickListener() { public void onClick(View v) { saveGame(); } })));
+        root.addView(row(
+                button("Vzhled", new View.OnClickListener() { public void onClick(View v) { toggleStyle(); } }),
+                button("Partie", new View.OnClickListener() { public void onClick(View v) { startActivity(new Intent(LabActivity.this, GamesActivity.class)); } }),
                 button("Menu", new View.OnClickListener() { public void onClick(View v) { finish(); } })));
 
         setContentView(scroll);
 
+        lines.add(moves);
+        lineCursors.add(0);
         int[] stones = getIntent().getIntArrayExtra("stones");
         if (stones != null) {
             for (int code : stones) moves.add(new int[]{code / 4, code % 4});
             cursor = moves.size();
+            lineCursors.set(0, cursor);
+            forcedStm = getIntent().getIntExtra("stm", 0);
         }
         setTool(TOOL_ALT);
         rebuild();
@@ -177,7 +199,9 @@ public class LabActivity extends Activity {
     }
 
     private void refreshStatus() {
-        status.setText("Kamenů: " + board.cnt + "   •   na tahu: " + Texts.colorName(board.stm));
+        status.setText("Kamenů: " + board.cnt + "   •   na tahu: " + Texts.colorName(board.stm)
+                + (lines.size() > 1 ? "   •   větev " + (line + 1) + "/" + lines.size() : ""));
+        branchButton.setText("Větev " + (line + 1) + "/" + lines.size());
         stmButton.setText("Na tahu: " + Texts.colorName(board.stm));
     }
 
@@ -193,6 +217,59 @@ public class LabActivity extends Activity {
         revScore = revBest = revLoss = null;
     }
 
+    private boolean revActive() { return reviewReady && line == revLine; }
+
+    /** Odbočka: původní tahy zůstanou, úpravy se dějí v nové větvi. */
+    private void fork() {
+        lineCursors.set(line, cursor);
+        ArrayList<int[]> nm = new ArrayList<int[]>(moves.subList(0, cursor));
+        lines.add(nm);
+        lineCursors.add(cursor);
+        line = lines.size() - 1;
+        moves = nm;
+        Toast.makeText(this, "Vznikla nová větev " + (line + 1)
+                + ". Původní tahy zůstaly – vrátíš se tlačítkem Původní.", Toast.LENGTH_LONG).show();
+    }
+
+    private void prepareEdit(boolean forceFork) {
+        if (forceFork || cursor < moves.size()) fork();
+        else if (line == revLine) clearReview();
+    }
+
+    private void switchLine(int i) {
+        if (busy || i == line || i < 0 || i >= lines.size()) return;
+        lineCursors.set(line, cursor);
+        line = i;
+        moves = lines.get(i);
+        cursor = Math.min(lineCursors.get(i), moves.size());
+        forcedStm = 0;
+        rebuild();
+        showReviewInfo();
+        if (!revActive()) {
+            info.setText((i == 0 ? "Původní tahy" : "Větev " + (i + 1)) + ": " + moves.size()
+                    + " tahů, zobrazeno " + cursor + " (tlačítko >| ukáže všechny).");
+        }
+    }
+
+    private void deleteBranch() {
+        if (busy) return;
+        if (line == 0) {
+            Toast.makeText(this, "Původní tahy se mažou tlačítkem Smazat.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int del = line;
+        lines.remove(del);
+        lineCursors.remove(del);
+        if (revLine == del) { clearReview(); revLine = 0; } else if (revLine > del) revLine--;
+        line = 0;
+        moves = lines.get(0);
+        cursor = Math.min(lineCursors.get(0), moves.size());
+        forcedStm = 0;
+        rebuild();
+        showReviewInfo();
+        if (!revActive()) info.setText("Větev " + (del + 1) + " smazána. Zobrazeny původní tahy.");
+    }
+
     private void onCell(int cell) {
         if (busy) return;
         view.setMarks(null);
@@ -200,10 +277,11 @@ public class LabActivity extends Activity {
         if (tool == TOOL_ERASE) {
             for (int k = 0; k < cursor; k++) {
                 if (moves.get(k)[0] == cell) {
+                    prepareEdit(line == 0 || cursor < moves.size());
                     moves.remove(k);
                     cursor--;
                     forcedStm = 0;
-                    clearReview();
+                    if (line == revLine) clearReview();
                     rebuild();
                     info.setText("Kámen odstraněn.");
                     return;
@@ -213,11 +291,10 @@ public class LabActivity extends Activity {
         }
         if (board.c[cell] != Board.EMPTY) return;
         int color = tool == TOOL_BLACK ? Board.BLACK : tool == TOOL_WHITE ? Board.WHITE : board.stm;
-        while (moves.size() > cursor) moves.remove(moves.size() - 1);
+        prepareEdit(false);
         moves.add(new int[]{cell, color});
         cursor++;
         forcedStm = 0;
-        clearReview();
         rebuild();
         info.setText("");
         if (board.wins(cell)) {
@@ -237,8 +314,27 @@ public class LabActivity extends Activity {
 
     private void clearBoard() {
         if (busy) return;
+        int total = 0;
+        for (ArrayList<int[]> l : lines) total += l.size();
+        if (total == 0) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Smazat celou desku včetně všech větví?")
+                .setPositiveButton("Smazat", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) { doClear(); }
+                })
+                .setNegativeButton("Zrušit", null)
+                .show();
+    }
+
+    private void doClear() {
         gen++;
-        moves.clear();
+        moves = new ArrayList<int[]>();
+        lines.clear();
+        lineCursors.clear();
+        lines.add(moves);
+        lineCursors.add(0);
+        line = 0;
+        revLine = 0;
         cursor = 0;
         forcedStm = 0;
         clearReview();
@@ -286,6 +382,13 @@ public class LabActivity extends Activity {
                             if (k > 0) sb.append(",  ");
                             sb.append(k + 1).append(". ").append(Texts.cell(a.moves[k], N))
                                     .append(" (").append(Texts.shortScore(a.scores[k])).append(")");
+                            if (a.equiv != null && k < a.equiv.length && a.equiv[k].length > 0) {
+                                sb.append(" = ");
+                                for (int q = 0; q < a.equiv[k].length; q++) {
+                                    if (q > 0) sb.append("/");
+                                    sb.append(Texts.cell(a.equiv[k][q], N));
+                                }
+                            }
                         }
                         sb.append("\nHloubka ").append(a.depth).append(".");
                         info.setText(sb.toString());
@@ -315,11 +418,10 @@ public class LabActivity extends Activity {
                             return;
                         }
                         int color = board.stm;
-                        while (moves.size() > cursor) moves.remove(moves.size() - 1);
+                        prepareEdit(false);
                         moves.add(new int[]{r.move, color});
                         cursor++;
                         forcedStm = 0;
-                        clearReview();
                         rebuild();
                         String txt = "AI zahrála " + Texts.cell(r.move, N) + " (hloubka " + r.depth + ").";
                         if (board.wins(r.move)) {
@@ -346,6 +448,7 @@ public class LabActivity extends Activity {
         view.setHint(-1);
         final int g = gen;
         final int total = moves.size();
+        final int reviewLine = line;
         final ArrayList<int[]> copy = new ArrayList<int[]>(moves);
         final boolean exact = set.rules == 1;
         final long ms = Math.min(1500, Math.max(700, Settings.LEVEL_MS[set.level] / 4));
@@ -356,6 +459,7 @@ public class LabActivity extends Activity {
                 final int[] best = new int[total + 1];
                 Board b = new Board(N);
                 b.exactFive = exact;
+                final int[] loss = new int[total];
                 for (int k = 0; k <= total; k++) {
                     if (g != gen) return;
                     boolean over = k > 0 && b.wins(b.lastMove());
@@ -363,9 +467,16 @@ public class LabActivity extends Activity {
                         score[k] = 0;
                         best[k] = -1;
                     } else {
-                        Engine.Result r = engine.think(b, ms, 14);
-                        score[k] = r.score;
-                        best[k] = r.move;
+                        int col = k < total ? copy.get(k)[1] : 0;
+                        int played = (k < total && col == b.stm) ? copy.get(k)[0] : -1;
+                        Engine.ReviewResult rr = engine.reviewMove(b, ms, played);
+                        score[k] = rr.bestScore;
+                        best[k] = rr.best;
+                        if (played >= 0) {
+                            int e0 = Math.max(-1500, Math.min(1500, rr.bestScore));
+                            int e1 = Math.max(-1500, Math.min(1500, rr.playedScore));
+                            loss[k] = Math.max(0, e0 - e1);
+                        }
                     }
                     final int done = k + 1;
                     ui.post(new Runnable() {
@@ -379,19 +490,6 @@ public class LabActivity extends Activity {
                         b.setTurn(nextStm);
                     }
                 }
-                final int[] loss = new int[total];
-                for (int m = 0; m < total; m++) {
-                    int col = copy.get(m)[1];
-                    int stmBefore = m == 0 ? Board.BLACK : 3 - copy.get(m - 1)[1];
-                    boolean over = best[m + 1] == -1;
-                    if (stmBefore != col || over || copy.get(m)[0] == best[m]) {
-                        loss[m] = 0;
-                        continue;
-                    }
-                    int e0 = Math.max(-1500, Math.min(1500, score[m]));
-                    int e1 = Math.max(-1500, Math.min(1500, score[m + 1]));
-                    loss[m] = Math.max(0, e0 + e1);
-                }
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
@@ -400,9 +498,14 @@ public class LabActivity extends Activity {
                         revBest = best;
                         revLoss = loss;
                         reviewReady = true;
-                        cursor = moves.size();
-                        rebuild();
-                        showReviewSummary();
+                        revLine = reviewLine;
+                        if (line == reviewLine) {
+                            cursor = moves.size();
+                            rebuild();
+                            showReviewSummary();
+                        } else {
+                            info.setText("Rozbor větve " + (reviewLine + 1) + " je hotov (zobrazí se po návratu na ni).");
+                        }
                     }
                 });
             }
@@ -427,14 +530,14 @@ public class LabActivity extends Activity {
     }
 
     private String positionEval() {
-        if (!reviewReady || cursor >= revScore.length) return "";
+        if (!revActive() || cursor >= revScore.length) return "";
         if (revBest[cursor] < 0) return "Konec partie.";
         int stm = board.stm;
         return Texts.evalBlack(revScore[cursor], stm, Math.abs(revScore[cursor]) > Engine.WIN - 200);
     }
 
     private void showBest() {
-        if (reviewReady && cursor < revBest.length && revBest[cursor] >= 0) {
+        if (revActive() && cursor < revBest.length && revBest[cursor] >= 0) {
             view.setMarks(new int[]{revBest[cursor]});
         } else {
             view.setMarks(null);
@@ -443,7 +546,7 @@ public class LabActivity extends Activity {
 
     private void showReviewInfo() {
         view.setMarks(null);
-        if (!reviewReady) {
+        if (!revActive()) {
             info.setText("");
             return;
         }
@@ -471,7 +574,7 @@ public class LabActivity extends Activity {
 
     private void nextMistake() {
         if (busy) return;
-        if (!reviewReady) {
+        if (!revActive()) {
             Toast.makeText(this, "Nejdřív spusť Rozbor.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -485,6 +588,25 @@ public class LabActivity extends Activity {
             }
         }
         Toast.makeText(this, "Další výrazná chyba už není.", Toast.LENGTH_SHORT).show();
+    }
+
+    // ------------------------------------------------------------ uložit, vzhled
+
+    private void saveGame() {
+        if (moves.isEmpty()) {
+            Toast.makeText(this, "Zatím není co uložit.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int[] codes = new int[moves.size()];
+        for (int k = 0; k < codes.length; k++) codes[k] = moves.get(k)[0] * 4 + moves.get(k)[1];
+        int stm = forcedStm != 0 ? forcedStm : 3 - moves.get(moves.size() - 1)[1];
+        GameDb.saveWithDialog(this, "Volná deska / analýza", codes, stm, set.rules == 1);
+    }
+
+    private void toggleStyle() {
+        set.style = set.style == 1 ? 0 : 1;
+        set.save(this);
+        view.setStyle(set.style);
     }
 
     // ------------------------------------------------------------ dohrát odtud

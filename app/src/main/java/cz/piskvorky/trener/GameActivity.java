@@ -1,6 +1,7 @@
 package cz.piskvorky.trener;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -8,6 +9,7 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -40,6 +42,7 @@ public class GameActivity extends Activity {
     private int playStart;
     private int gen;             // zneplatní výsledky starých vláken
     private boolean busy;
+    private String lastResult = "Rozehráno";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -58,6 +61,7 @@ public class GameActivity extends Activity {
 
         view = new BoardView(this);
         view.setShowNumbers(set.numbers);
+        view.setStyle(set.style);
         root.addView(view, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         view.setListener(new BoardView.OnCellTap() {
@@ -103,15 +107,30 @@ public class GameActivity extends Activity {
         row.addView(button("Rozbor", new View.OnClickListener() {
             public void onClick(View v) { openReview(); }
         }));
-        row.addView(button("Nová", new View.OnClickListener() {
-            public void onClick(View v) { newGame(); }
-        }));
-        row.addView(button("Menu", new View.OnClickListener() {
-            public void onClick(View v) { finish(); }
+        row.addView(button("Uložit", new View.OnClickListener() {
+            public void onClick(View v) { saveGame(); }
         }));
         root.addView(row);
 
-        setContentView(root);
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(button("Nová", new View.OnClickListener() {
+            public void onClick(View v) { newGame(); }
+        }));
+        row2.addView(button("Vzhled", new View.OnClickListener() {
+            public void onClick(View v) { toggleStyle(); }
+        }));
+        row2.addView(button("Partie", new View.OnClickListener() {
+            public void onClick(View v) { startActivity(new Intent(GameActivity.this, GamesActivity.class)); }
+        }));
+        row2.addView(button("Menu", new View.OnClickListener() {
+            public void onClick(View v) { finish(); }
+        }));
+        root.addView(row2);
+
+        ScrollView sv = new ScrollView(this);
+        sv.addView(root);
+        setContentView(sv);
         if (getIntent().getIntArrayExtra("stones") != null) startFromPosition(); else newGame();
     }
 
@@ -165,9 +184,34 @@ public class GameActivity extends Activity {
         startActivity(it);
     }
 
+    // ---------------------------------------------------------------- ukládání, vzhled
+
+    private void autoSave() {
+        if (!set.autoSave || board.cnt == 0) return;
+        GameDb.quickSave(this, lastResult, GameDb.codesOf(board), board.stm, board.exactFive);
+        Toast.makeText(this, "Partie uložena do databáze.", Toast.LENGTH_SHORT).show();
+    }
+
+    private void saveGame() {
+        if (board.cnt == 0) {
+            Toast.makeText(this, "Zatím není co uložit.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String res = phase == Phase.OVER ? lastResult
+                : "Rozehráno (ty: " + colorName(humanColor == 0 ? Board.BLACK : humanColor) + ")";
+        GameDb.saveWithDialog(this, res, GameDb.codesOf(board), board.stm, board.exactFive);
+    }
+
+    private void toggleStyle() {
+        set.style = set.style == 1 ? 0 : 1;
+        set.save(this);
+        view.setStyle(set.style);
+    }
+
     // ---------------------------------------------------------------- nová hra
 
     private void newGame() {
+        lastResult = "Rozehráno";
         hideChoice();
         gen++;
         busy = false;
@@ -266,11 +310,15 @@ public class GameActivity extends Activity {
             view.setWinLine(board.winLine(cell));
             boolean me = board.c[cell] == humanColor;
             status.setText(me ? "Vyhrál jsi! 🎉" : "AI vyhrála. Zkus to znovu nebo si vyžádej Tip.");
+            lastResult = "Vyhrál " + colorName(board.c[cell]) + (me ? " (ty)" : " (AI)");
+            autoSave();
             return true;
         }
         if (board.cnt >= N * N) {
             phase = Phase.OVER;
             status.setText("Remíza – deska je plná.");
+            lastResult = "Remíza";
+            autoSave();
             return true;
         }
         return false;

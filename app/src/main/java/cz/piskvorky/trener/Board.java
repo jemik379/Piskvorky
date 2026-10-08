@@ -305,6 +305,46 @@ final class Board {
         return k;
     }
 
+    /** Obraz pole cell při transformaci t (0 = identita, 1–3 otočení, 4–7 zrcadlení) kolem středu desky. */
+    int transform(int t, int cell) {
+        int m = n - 1, x = cell % n, y = cell / n, nx, ny;
+        switch (t) {
+            case 0: nx = x; ny = y; break;
+            case 1: nx = m - y; ny = x; break;
+            case 2: nx = m - x; ny = m - y; break;
+            case 3: nx = y; ny = m - x; break;
+            case 4: nx = m - x; ny = y; break;
+            case 5: nx = x; ny = m - y; break;
+            case 6: nx = y; ny = x; break;
+            default: nx = m - y; ny = m - x; break;
+        }
+        return ny * n + nx;
+    }
+
+    /**
+     * Symetrie pozice: pro každé pole vrátí reprezentanta jeho třídy (nejmenší index mezi poli,
+     * která jsou si v dané pozici symetricky rovnocenná). Bez symetrie vrací null.
+     */
+    int[] symRep() {
+        int[] ok = new int[8];
+        int nok = 0;
+        for (int t = 1; t < 8; t++) {
+            boolean good = true;
+            for (int k = 0; k < cnt; k++) {
+                if (c[transform(t, hist[k])] != histCol[k]) { good = false; break; }
+            }
+            if (good) ok[nok++] = t;
+        }
+        if (nok == 0) return null;
+        int[] rep = new int[n2];
+        for (int cell = 0; cell < n2; cell++) {
+            int m = cell;
+            for (int q = 0; q < nok; q++) m = Math.min(m, transform(ok[q], cell));
+            rep[cell] = m;
+        }
+        return rep;
+    }
+
     /** Je vůbec nějaké okno se třemi a více kameny (šance na čtyřku)? */
     int threePlus(int color) {
         int b = (color - 1) * 6;

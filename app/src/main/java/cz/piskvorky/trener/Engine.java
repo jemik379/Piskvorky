@@ -29,6 +29,7 @@ final class Engine {
     static final class Analysis {
         int[] moves = new int[0];
         int[] scores = new int[0];
+        int[][] equiv = new int[0][];   // symetricky rovnocenná pole k jednotlivým tahům
         int depth;
         boolean mate;
     }
@@ -78,6 +79,51 @@ final class Engine {
         Arrays.fill(tk, 0L);
     }
 
+    /** Hodnocení odehraného tahu: nejlepší tah a skóre vs. skóre odehraného tahu (stejná hloubka). */
+    static final class ReviewResult {
+        int best = -1;
+        int bestScore;
+        int playedScore;
+        int depth;
+        boolean equal = true;
+    }
+
+    private static int compactSym(int[] rm, int[] rs, int nr, int[] rep) {
+        if (rep == null) return nr;
+        int k = 0;
+        for (int j = 0; j < nr; j++) {
+            if (rep[rm[j]] == rm[j]) { rm[k] = rm[j]; rs[k] = rs[j]; k++; }
+        }
+        return k;
+    }
+
+    /**
+     * Ohodnotí odehraný tah (played, nebo -1): nejlepší tah vs. odehraný tah hledaný do stejné
+     * hloubky s plným oknem. Symetricky rovnocenné tahy dostanou stejné skóre.
+     */
+    ReviewResult reviewMove(Board src, long millis, int played) {
+        Result r = think(src, millis, 30);
+        ReviewResult out = new ReviewResult();
+        out.best = r.move;
+        out.bestScore = r.score;
+        out.playedScore = r.score;
+        out.depth = r.depth;
+        if (r.move < 0 || played < 0 || played == r.move) return out;
+        if (b.c[played] != Board.EMPTY) return out;
+        int[] rep = b.symRep();
+        if (rep != null && rep[played] == rep[r.move]) return out;
+        out.equal = false;
+        timeUp = false;
+        deadline = System.currentTimeMillis() + Math.max(200, millis * 6 / 10);
+        int d = Math.max(r.depth, 3);
+        int target = rep != null ? rep[played] : played;   // symetrické tahy se hledají jako jeden a ten samý
+        b.place(target);
+        int v = b.wins(target) ? WIN - 1 : -search(d - 1, -INF, INF, 1);
+        b.undo();
+        if (!timeUp) out.playedScore = v;
+        return out;
+    }
+
     /** Hlavní vstup: najdi nejlepší tah. */
     Result think(Board src, long millis, int maxDepth) {
         setup(src, millis);
@@ -108,6 +154,7 @@ final class Engine {
         int[] rs = new int[cells];
         int nr = 0;
         boolean restricted = false;
+        int[] rep = b.symRep();
 
         if (no == 0) {
             // otevřená čtyřka / dvojitá čtyřka za 3 půltahy
@@ -188,9 +235,11 @@ final class Engine {
                     nr++;
                 }
             }
+            nr = compactSym(rm, rs, nr, rep);
             sortDesc(rm, rs, nr);
             nr = Math.min(nr, 24);
         } else {
+            nr = compactSym(rm, rs, nr, rep);
             sortDesc(rm, rs, nr);
         }
         if (nr == 0) return res;
@@ -312,6 +361,7 @@ final class Engine {
         int[] rs = new int[cells];
         int nr = 0;
         boolean extend = no == 1;
+        int[] rep = b.symRep();
         if (no == 1) {
             rm[nr++] = f[0];
         } else {
@@ -375,6 +425,7 @@ final class Engine {
                     }
                 }
             }
+            nr = compactSym(rm, rs, nr, rep);
             sortDesc(rm, rs, nr);
             nr = Math.min(nr, 14);
         }
@@ -403,6 +454,17 @@ final class Engine {
             int k = Math.min(topK, nr);
             out.moves = Arrays.copyOf(mm, k);
             out.scores = Arrays.copyOf(ss, k);
+            out.equiv = new int[k][];
+            for (int q = 0; q < k; q++) {
+                int cntEq = 0;
+                int[] tmpEq = new int[cells];
+                if (rep != null) {
+                    for (int cc = 0; cc < cells; cc++) {
+                        if (cc != out.moves[q] && b.c[cc] == Board.EMPTY && rep[cc] == rep[out.moves[q]]) tmpEq[cntEq++] = cc;
+                    }
+                }
+                out.equiv[q] = Arrays.copyOf(tmpEq, cntEq);
+            }
             out.depth = depth;
             out.mate = Math.abs(ss[0]) > WIN - 200;
             System.arraycopy(mm, 0, rm, 0, nr);

@@ -16,8 +16,8 @@ import android.widget.TextView;
 /** Úvodní obrazovka s nastavením. */
 public class MenuActivity extends Activity {
     private Settings s;
-    private Spinner spOpening, spRole, spColor, spLevel, spRules;
-    private CheckBox cbCenter, cbNumbers;
+    private Spinner spOpening, spRole, spColor, spLevel, spRules, spStyle;
+    private CheckBox cbCenter, cbNumbers, cbAuto;
     private TextView roleLabel, colorLabel;
 
     @Override
@@ -51,6 +51,7 @@ public class MenuActivity extends Activity {
         TextView colorTv = lastLabel;
         spLevel = addSpinner(root, "Síla AI (čas na tah)", Settings.LEVEL, s.level);
         spRules = addSpinner(root, "Pravidla", Settings.RULES, s.rules);
+        spStyle = addSpinner(root, "Vzhled desky", Settings.STYLE, s.style);
 
         cbCenter = new CheckBox(this);
         cbCenter.setText("První černý kámen vždy uprostřed");
@@ -61,6 +62,11 @@ public class MenuActivity extends Activity {
         cbNumbers.setText("Zobrazovat čísla tahů");
         cbNumbers.setChecked(s.numbers);
         root.addView(cbNumbers);
+
+        cbAuto = new CheckBox(this);
+        cbAuto.setText("Ukládat dohrané partie automaticky");
+        cbAuto.setChecked(s.autoSave);
+        root.addView(cbAuto);
 
         Button start = new Button(this);
         start.setText("Začít hru");
@@ -77,8 +83,20 @@ public class MenuActivity extends Activity {
                 s.level = spLevel.getSelectedItemPosition();
                 s.rules = spRules.getSelectedItemPosition();
                 s.numbers = cbNumbers.isChecked();
+                s.style = spStyle.getSelectedItemPosition();
+                s.autoSave = cbAuto.isChecked();
                 s.save(MenuActivity.this);
                 startActivity(new Intent(MenuActivity.this, LabActivity.class));
+            }
+        });
+
+        Button games = new Button(this);
+        games.setText("Uložené partie");
+        root.addView(games);
+        games.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MenuActivity.this, GamesActivity.class));
             }
         });
 
@@ -110,12 +128,23 @@ public class MenuActivity extends Activity {
                 s.rules = spRules.getSelectedItemPosition();
                 s.centerFirst = cbCenter.isChecked();
                 s.numbers = cbNumbers.isChecked();
+                s.style = spStyle.getSelectedItemPosition();
+                s.autoSave = cbAuto.isChecked();
                 s.save(MenuActivity.this);
                 startActivity(new Intent(MenuActivity.this, GameActivity.class));
             }
         });
 
         setContentView(scroll);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // vzhled se dá přepnout i ve hře, tak ho znovu načteme
+        Settings t = Settings.load(this);
+        s.style = t.style;
+        spStyle.setSelection(t.style);
     }
 
     private TextView lastLabel;
