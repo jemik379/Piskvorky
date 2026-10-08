@@ -98,6 +98,9 @@
     <button id="l_review">Rozbor</button><button id="l_mistake">Chyba &gt;</button>
   </div>
   <div class="row">
+    <button id="l_orig">Původní</button><button id="l_branch">Větev 1/1</button><button id="l_delbranch">Smazat větev</button>
+  </div>
+  <div class="row">
     <button id="l_stm">Na tahu</button><button id="l_play">Hrát odtud</button><button id="l_style">Vzhled</button><button id="l_menu">Menu</button>
   </div>
 </div>
@@ -329,6 +332,44 @@ class Board {
     }
     return k;
   }
+  /** Obraz pole cell při transformaci t (0 = identita, 1–3 otočení, 4–7 zrcadlení) kolem středu desky. */
+  transform(t, cell) {
+    const n = this.n, m = n - 1, x = cell % n, y = (cell / n) | 0;
+    let nx, ny;
+    switch (t) {
+      case 0: nx = x; ny = y; break;
+      case 1: nx = m - y; ny = x; break;
+      case 2: nx = m - x; ny = m - y; break;
+      case 3: nx = y; ny = m - x; break;
+      case 4: nx = m - x; ny = y; break;
+      case 5: nx = x; ny = m - y; break;
+      case 6: nx = y; ny = x; break;
+      default: nx = m - y; ny = m - x;
+    }
+    return ny * n + nx;
+  }
+  /**
+   * Symetrie pozice: pro každé pole vrátí reprezentanta jeho třídy (nejmenší index mezi poli,
+   * která jsou si v dané pozici symetricky rovnocenná). Když pozice nemá žádnou symetrii, vrací null.
+   */
+  symRep() {
+    const ok = [];
+    for (let t = 1; t < 8; t++) {
+      let good = true;
+      for (let k = 0; k < this.cnt; k++) {
+        if (this.c[this.transform(t, this.hist[k])] !== this.histCol[k]) { good = false; break; }
+      }
+      if (good) ok.push(t);
+    }
+    if (!ok.length) return null;
+    const rep = new Int32Array(this.n2);
+    for (let cell = 0; cell < this.n2; cell++) {
+      let m = cell;
+      for (const t of ok) m = Math.min(m, this.transform(t, cell));
+      rep[cell] = m;
+    }
+    return rep;
+  }
   threePlus(color) { const b = (color - 1) * 6; return this.wc[b + 3] + this.wc[b + 4]; }
   threes(color) { return this.wc[(color - 1) * 6 + 3]; }
   gain(i, color) { return color === BLACK ? this.gB[i] : this.gW[i]; }
@@ -404,6 +445,13 @@ function sortDesc(m, s, n) {
     m[j + 1] = mm; s[j + 1] = ss;
   }
 }
+/** Ponechá z kandidátů jen reprezentanty symetrických tříd. */
+function compactSym(rm, rs, nr, rep) {
+  if (!rep) return nr;
+  let k = 0;
+  for (let j = 0; j < nr; j++) if (rep[rm[j]] === rm[j]) { rm[k] = rm[j]; rs[k] = rs[j]; k++; }
+  return k;
+}
 function toTT(s, ply) { if (s > WIN - 1000) return s + ply; if (s < -WIN + 1000) return s - ply; return s; }
 function fromTT(s, ply) { if (s > WIN - 1000) return s - ply; if (s < -WIN + 1000) return s + ply; return s; }
 const now = () => Date.now();
@@ -469,6 +517,7 @@ class Engine {
     let nr = 0;
     let restricted = false;
     const scratch = this.scratch, mark2 = this.mark2;
+    const rep = b.symRep();
 
     if (no === 0) {
       if (b.threes(stm) > 0) {
@@ -524,9 +573,11 @@ class Engine {
       for (let i = 0; i < cells; i++) {
         if (b.c[i] === EMPTY && b.near[i] > 0) { rm[nr] = i; rs[nr] = this.score(i, stm, opp); nr++; }
       }
+      nr = compactSym(rm, rs, nr, rep);
       sortDesc(rm, rs, nr);
       nr = Math.min(nr, 24);
     } else {
+      nr = compactSym(rm, rs, nr, rep);
       sortDesc(rm, rs, nr);
     }
     if (nr === 0) return res;
@@ -563,6 +614,30 @@ class Engine {
     this.safeMove(res, rm, nr, millis, stm, opp);
     res.nodes = this.nodes;
     return res;
+  }
+
+  /**
+   * Hodnocení jednoho odehraného tahu: nejlepší tah a jeho skóre vs. skóre odehraného tahu
+   * (hledané do stejné hloubky s plným oknem). Symetricky rovnocenné tahy mají stejné skóre.
+   */
+  reviewMove(src, millis, played) {
+    const r = this.think(src, millis, 30);
+    const b = this.b;
+    const out = { best: r.move, bestScore: r.score, playedScore: r.score, depth: r.depth, equal: true };
+    if (r.move < 0 || played < 0 || played === r.move) return out;
+    if (b.c[played] !== EMPTY) return out;
+    const rep = b.symRep();
+    if (rep && rep[played] === rep[r.move]) return out;
+    out.equal = false;
+    this.timeUp = false;
+    this.deadline = now() + Math.max(200, Math.floor(millis * 0.6));
+    const d = Math.max(r.depth, 3);
+    const target = rep ? rep[played] : played;   // symetrické tahy se hledají jako jeden a ten samý
+    b.place(target);
+    const v = b.wins(target) ? WIN - 1 : -this.search(d - 1, -INF, INF, 1);
+    b.undo();
+    if (!this.timeUp) out.playedScore = v;
+    return out;
   }
 
   safeMove(res, rm, nr, millis, stm, opp) {
@@ -609,6 +684,7 @@ class Engine {
     const rm = new Int32Array(cells), rs = new Int32Array(cells);
     let nr = 0;
     let extend = no === 1;
+    const rep = b.symRep();
     if (no === 1) {
       rm[nr++] = f[0];
     } else {
@@ -655,6 +731,7 @@ class Engine {
           if (b.c[i] === EMPTY && b.near[i] > 0) { rm[nr] = i; rs[nr] = this.score(i, stm, opp); nr++; }
         }
       }
+      nr = compactSym(rm, rs, nr, rep);
       sortDesc(rm, rs, nr);
       nr = Math.min(nr, 14);
     }
@@ -677,6 +754,11 @@ class Engine {
       const k = Math.min(topK, nr);
       out.moves = Array.from(mm.subarray(0, k));
       out.scores = Array.from(ss.subarray(0, k));
+      out.equiv = out.moves.map(mv => {
+        const eq = [];
+        if (rep) for (let c = 0; c < cells; c++) if (c !== mv && b.c[c] === EMPTY && rep[c] === rep[mv]) eq.push(c);
+        return eq;
+      });
       out.depth = depth;
       out.mate = Math.abs(ss[0]) > WIN - 200;
       rm.set(mm, 0); sc.set(ss, 0);
@@ -1030,20 +1112,19 @@ function runTask(type, m, eng, progress) {
       const score = new Array(total + 1), best = new Array(total + 1);
       const b = new Board(N15);
       b.exactFive = !!m.exact;
+      const loss = new Array(total).fill(0);
       for (let k = 0; k <= total; k++) {
         const over = k > 0 && b.wins(b.lastMove());
         if (over || (k === total && total >= N15 * N15)) { score[k] = 0; best[k] = -1; }
-        else { const r = eng.think(b, m.ms, 14); score[k] = r.score; best[k] = r.move; }
+        else {
+          const col = k < total ? st[2 * k + 1] : 0;
+          const played = (k < total && col === b.stm) ? st[2 * k] : -1;
+          const rr = eng.reviewMove(b, m.ms, played);
+          score[k] = rr.bestScore; best[k] = rr.best;
+          if (played >= 0) loss[k] = Math.max(0, clamp(rr.bestScore, -1500, 1500) - clamp(rr.playedScore, -1500, 1500));
+        }
         if (progress) progress(k + 1, total + 1);
         if (k < total) { b.placeAs(st[2 * k], st[2 * k + 1]); b.setTurn(3 - st[2 * k + 1]); }
-      }
-      const loss = new Array(total).fill(0);
-      for (let k = 0; k < total; k++) {
-        const col = st[2 * k + 1];
-        const stmBefore = k === 0 ? BLACK : 3 - st[2 * k - 1];
-        const over = best[k + 1] === -1;
-        if (stmBefore !== col || over || st[2 * k] === best[k]) continue;
-        loss[k] = Math.max(0, clamp(score[k], -1500, 1500) + clamp(score[k + 1], -1500, 1500));
       }
       return { score, best, loss };
     }
@@ -1534,7 +1615,9 @@ $('g_menu').onclick = () => { G.gen++; cancelAll(); G.busy = false; show('menu')
 /* =====================================================================
    VOLNÁ DESKA / ANALÝZA
    ===================================================================== */
-const L = { board: null, moves: [], cursor: 0, forcedStm: 0, tool: 0, gen: 0, busy: false, rev: null };
+const L = { board: null, moves: [], cursor: 0, forcedStm: 0, tool: 0, gen: 0, busy: false, rev: null,
+  lines: [{ moves: [], cursor: 0 }], line: 0, revLine: 0 };
+const activeRev = () => (L.line === L.revLine ? L.rev : null);
 const lbc = new BoardCanvas($('l_canvas'), c => lCell(c));
 const lInfo = t => { $('l_info').textContent = t; };
 const TOOLS = ['Střídat', 'Černý', 'Bílý', 'Guma'];
@@ -1558,16 +1641,45 @@ function lRebuild() {
   lRefreshStatus();
 }
 function lRefreshStatus() {
-  $('l_status').textContent = 'Kamenů: ' + L.board.cnt + '   •   na tahu: ' + colorName(L.board.stm);
+  $('l_status').textContent = 'Kamenů: ' + L.board.cnt + '   •   na tahu: ' + colorName(L.board.stm)
+    + (L.lines.length > 1 ? '   •   větev ' + (L.line + 1) + '/' + L.lines.length : '');
+  $('l_branch').textContent = 'Větev ' + (L.line + 1) + '/' + L.lines.length;
   $('l_stm').textContent = 'Na tahu: ' + colorName(L.board.stm);
 }
 function lClearReview() { L.rev = null; }
 
+/* Změna tahů uprostřed partie nesmaže původní tahy: vznikne nová větev. */
+function lFork() {
+  L.lines[L.line].cursor = L.cursor;
+  const nm = L.moves.slice(0, L.cursor);
+  L.lines.push({ moves: nm, cursor: L.cursor });
+  L.line = L.lines.length - 1;
+  L.moves = nm;
+  toast('Vznikla nová větev ' + (L.line + 1) + '. Původní tahy zůstaly – vrátíš se tlačítkem Původní.');
+}
+/* Před úpravou aktuální větve: uprostřed existující větve se vytvoří odbočka. */
+function lPrepareEdit(forceFork) {
+  if (forceFork || L.cursor < L.moves.length) lFork();
+  else if (L.line === L.revLine) lClearReview();
+}
+function lSwitch(i) {
+  if (L.busy || i === L.line || i < 0 || i >= L.lines.length) return;
+  L.lines[L.line].cursor = L.cursor;
+  L.line = i;
+  L.moves = L.lines[i].moves;
+  L.cursor = Math.min(L.lines[i].cursor, L.moves.length);
+  L.forcedStm = 0;
+  lRebuild();
+  lShowReviewInfo();
+  if (!activeRev()) lInfo((i === 0 ? 'Původní tahy' : 'Větev ' + (i + 1)) + ': ' + L.moves.length + ' tahů, zobrazeno ' + L.cursor + ' (tlačítko >| ukáže všechny).');
+}
+
 function labOpen(stones, review) {
   L.gen++; cancelAll(); L.busy = false;
   L.moves = []; L.cursor = 0; L.forcedStm = 0; L.rev = null;
+  L.lines = [{ moves: L.moves, cursor: 0 }]; L.line = 0; L.revLine = 0;
   $('l_choice').classList.add('hidden');
-  if (stones) { for (let k = 0; k < stones.length; k += 2) L.moves.push([stones[k], stones[k + 1]]); L.cursor = L.moves.length; }
+  if (stones) { for (let k = 0; k < stones.length; k += 2) L.moves.push([stones[k], stones[k + 1]]); L.cursor = L.moves.length; L.lines[0].cursor = L.cursor; }
   lSetTool(0);
   show('lab');
   lRebuild();
@@ -1581,7 +1693,9 @@ function lCell(cell) {
   if (L.tool === 3) {
     for (let k = 0; k < L.cursor; k++) {
       if (L.moves[k][0] === cell) {
-        L.moves.splice(k, 1); L.cursor--; L.forcedStm = 0; lClearReview();
+        lPrepareEdit(L.line === 0 || L.cursor < L.moves.length);
+        L.moves.splice(k, 1); L.cursor--; L.forcedStm = 0;
+        if (L.line === L.revLine) lClearReview();
         lRebuild(); lInfo('Kámen odstraněn.');
         return;
       }
@@ -1591,9 +1705,9 @@ function lCell(cell) {
   }
   if (L.board.c[cell] !== EMPTY) return;
   const color = L.tool === 1 ? BLACK : L.tool === 2 ? WHITE : L.board.stm;
-  L.moves.length = L.cursor;
+  lPrepareEdit(false);
   L.moves.push([cell, color]);
-  L.cursor++; L.forcedStm = 0; lClearReview();
+  L.cursor++; L.forcedStm = 0;
   lRebuild();
   lInfo('');
   if (L.board.wins(cell)) {
@@ -1611,9 +1725,24 @@ function lGoTo(k) {
 }
 function lClear() {
   if (L.busy) return;
+  const total = L.lines.reduce((a, l) => a + l.moves.length, 0);
+  if (total > 0 && !window.confirm('Smazat celou desku včetně všech větví?')) return;
   L.gen++; cancelAll();
   L.moves = []; L.cursor = 0; L.forcedStm = 0; lClearReview();
+  L.lines = [{ moves: L.moves, cursor: 0 }]; L.line = 0; L.revLine = 0;
   lRebuild(); lInfo('Deska vymazána.');
+}
+function lDeleteBranch() {
+  if (L.busy) return;
+  if (L.line === 0) { toast('Původní tahy se mažou tlačítkem Smazat.'); return; }
+  const del = L.line;
+  L.lines.splice(del, 1);
+  if (L.revLine === del) { lClearReview(); L.revLine = 0; } else if (L.revLine > del) L.revLine--;
+  L.line = 0; L.moves = L.lines[0].moves;
+  L.cursor = Math.min(L.lines[0].cursor, L.moves.length);
+  L.forcedStm = 0;
+  lRebuild(); lShowReviewInfo();
+  if (!activeRev()) lInfo('Větev ' + (del + 1) + ' smazána. Zobrazeny původní tahy.');
 }
 function lToggleStm() {
   if (L.busy) return;
@@ -1632,7 +1761,8 @@ function lAnalyze() {
     L.busy = false;
     if (!a.moves.length) { lInfo('Žádný tah k analýze.'); return; }
     lbc.marks = a.moves; lbc.draw();
-    const parts = a.moves.map((m, k) => (k + 1) + '. ' + cellName(m) + ' (' + shortScore(a.scores[k]) + ')');
+    const parts = a.moves.map((m, k) => (k + 1) + '. ' + cellName(m) + ' (' + shortScore(a.scores[k]) + ')'
+      + (a.equiv && a.equiv[k] && a.equiv[k].length ? ' = ' + a.equiv[k].map(cellName).join('/') : ''));
     lInfo(evalBlackText(a.scores[0], stm, a.mate) + '\nNejlepší tahy (' + colorName(stm) + '): ' + parts.join(',  ')
       + '\nHloubka ' + a.depth + '.');
   });
@@ -1648,9 +1778,9 @@ function lAiMove() {
     L.busy = false;
     if (r.move < 0 || L.board.c[r.move] !== EMPTY) { lInfo('AI nemá tah.'); return; }
     const color = L.board.stm;
-    L.moves.length = L.cursor;
+    lPrepareEdit(false);
     L.moves.push([r.move, color]);
-    L.cursor++; L.forcedStm = 0; lClearReview();
+    L.cursor++; L.forcedStm = 0;
     lRebuild();
     let txt = 'AI zahrála ' + cellName(r.move) + ' (hloubka ' + r.depth + ').';
     if (L.board.wins(r.move)) {
@@ -1673,6 +1803,7 @@ function lReview() {
   if (!L.moves.length) { toast('Nejdřív polož nějaké kameny.'); return; }
   L.busy = true; lbc.marks = []; lbc.hint = -1; lbc.draw();
   const g = L.gen, total = L.moves.length;
+  const reviewLine = L.line;
   const stones = [];
   for (const m of L.moves) stones.push(m[0], m[1]);
   const ms = Math.min(1500, Math.max(700, Math.floor(LEVEL_MS[set.level] / 4)));
@@ -1682,20 +1813,19 @@ function lReview() {
   }).then(r => {
     if (g !== L.gen) return;
     L.busy = false;
-    L.rev = r;
-    L.cursor = L.moves.length;
-    lRebuild();
-    lShowReviewSummary();
+    L.rev = r; L.revLine = reviewLine;
+    if (L.line === reviewLine) { L.cursor = L.moves.length; lRebuild(); lShowReviewSummary(); }
+    else lInfo('Rozbor větve ' + (reviewLine + 1) + ' je hotov (zobrazí se po návratu na ni).');
   });
 }
 function lPositionEval() {
-  const r = L.rev;
+  const r = activeRev();
   if (!r || L.cursor >= r.score.length) return '';
   if (r.best[L.cursor] < 0) return 'Konec partie.';
   return evalBlackText(r.score[L.cursor], L.board.stm, Math.abs(r.score[L.cursor]) > WINV - 200);
 }
 function lShowBest() {
-  const r = L.rev;
+  const r = activeRev();
   lbc.marks = (r && L.cursor < r.best.length && r.best[L.cursor] >= 0) ? [r.best[L.cursor]] : [];
   lbc.draw();
 }
@@ -1707,7 +1837,7 @@ function lShowReviewSummary() {
 }
 function lShowReviewInfo() {
   lbc.marks = []; lbc.draw();
-  const r = L.rev;
+  const r = activeRev();
   if (!r) { lInfo(''); return; }
   let s = '';
   if (L.cursor > 0) {
@@ -1724,9 +1854,10 @@ function lShowReviewInfo() {
 }
 function lNextMistake() {
   if (L.busy) return;
-  if (!L.rev) { toast('Nejdřív spusť Rozbor.'); return; }
-  for (let m = L.cursor; m < L.rev.loss.length; m++) {
-    if (L.rev.loss[m] >= 250) { L.cursor = m + 1; L.forcedStm = 0; lRebuild(); lShowReviewInfo(); return; }
+  const rv = activeRev();
+  if (!rv) { toast('Nejdřív spusť Rozbor.'); return; }
+  for (let m = L.cursor; m < rv.loss.length; m++) {
+    if (rv.loss[m] >= 250) { L.cursor = m + 1; L.forcedStm = 0; lRebuild(); lShowReviewInfo(); return; }
   }
   toast('Další výrazná chyba už není.');
 }
@@ -1753,6 +1884,9 @@ $('l_ai').onclick = lAiMove;
 $('l_review').onclick = lReview;
 $('l_mistake').onclick = lNextMistake;
 $('l_stm').onclick = lToggleStm;
+$('l_orig').onclick = () => lSwitch(0);
+$('l_branch').onclick = () => lSwitch((L.line + 1) % L.lines.length);
+$('l_delbranch').onclick = lDeleteBranch;
 $('l_play').onclick = lPlayFromHere;
 $('l_pb').onclick = () => lStartGame(BLACK);
 $('l_pw').onclick = () => lStartGame(WHITE);
