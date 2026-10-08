@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "PiskvorkyTrener"
-include ':App'
+include ':app'
