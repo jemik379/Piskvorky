@@ -38,7 +38,8 @@ public class LabActivity extends Activity {
     private BoardView view;
     private TextView status, info;
     private final Button[] toolButtons = new Button[4];
-    private Button stmButton;
+    private Button stmButton, autoButton;
+    private int autoSeq;
 
     /** Kameny: {pole, barva}. Zobrazeno je prvních `cursor`. */
     private ArrayList<int[]> moves = new ArrayList<int[]>();
@@ -56,6 +57,8 @@ public class LabActivity extends Activity {
     // rozbor partie
     private int[] revScore, revBest, revLoss;
     private boolean reviewReady;
+    private ReviewStats revStats;
+    private ReviewGraph graph;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -91,6 +94,14 @@ public class LabActivity extends Activity {
         info.setMinLines(3);
         root.addView(info);
 
+        graph = new ReviewGraph(this);
+        graph.setVisibility(View.GONE);
+        graph.setListener(new ReviewGraph.OnPick() {
+            public void pick(int position) { if (revActive() && !busy) goTo(position); }
+        });
+        root.addView(graph, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         root.addView(row(
                 button("|<", new View.OnClickListener() { public void onClick(View v) { goTo(0); } }),
                 button("<", new View.OnClickListener() { public void onClick(View v) { goTo(cursor - 1); } }),
@@ -111,6 +122,7 @@ public class LabActivity extends Activity {
 
         root.addView(row(
                 button("Analýza", new View.OnClickListener() { public void onClick(View v) { analyze(); } }),
+                autoButton = button("Auto: vyp", new View.OnClickListener() { public void onClick(View v) { toggleAuto(); } }),
                 button("AI tah", new View.OnClickListener() { public void onClick(View v) { aiMove(); } }),
                 button("Rozbor", new View.OnClickListener() { public void onClick(View v) { review(); } }),
                 button("Chyba >", new View.OnClickListener() { public void onClick(View v) { nextMistake(); } })));
@@ -135,6 +147,7 @@ public class LabActivity extends Activity {
                 button("Partie", new View.OnClickListener() { public void onClick(View v) { startActivity(new Intent(LabActivity.this, GamesActivity.class)); } }),
                 button("Menu", new View.OnClickListener() { public void onClick(View v) { finish(); } })));
 
+        updateAutoButton();
         setContentView(scroll);
 
         lines.add(moves);
@@ -196,6 +209,7 @@ public class LabActivity extends Activity {
         board.setTurn(stm);
         view.setBoard(board);
         refreshStatus();
+        scheduleAuto();
     }
 
     private void refreshStatus() {
@@ -215,6 +229,7 @@ public class LabActivity extends Activity {
     private void clearReview() {
         reviewReady = false;
         revScore = revBest = revLoss = null;
+        revStats = null;
     }
 
     private boolean revActive() { return reviewReady && line == revLine; }
@@ -355,8 +370,72 @@ public class LabActivity extends Activity {
         return Math.max(5000, Settings.LEVEL_MS[set.level]);
     }
 
+    private void showAnalysis(Engine.Analysis a, int stm, boolean auto) {
+        view.setMarks(a.moves);
+        StringBuilder sb = new StringBuilder();
+        sb.append(Texts.evalBlack(a.scores[0], stm, a.mate)).append("\nNejlepší tahy (").append(Texts.colorName(stm)).append("): ");
+        for (int k = 0; k < a.moves.length; k++) {
+            if (k > 0) sb.append(",  ");
+            sb.append(k + 1).append(". ").append(Texts.cell(a.moves[k], N))
+                    .append(" (").append(Texts.shortScore(a.scores[k])).append(")");
+            if (a.equiv != null && k < a.equiv.length && a.equiv[k].length > 0) {
+                sb.append(" = ");
+                for (int q = 0; q < a.equiv[k].length; q++) {
+                    if (q > 0) sb.append("/");
+                    sb.append(Texts.cell(a.equiv[k][q], N));
+                }
+            }
+        }
+        sb.append("\nHloubka ").append(a.depth).append(auto ? " (auto)." : ".");
+        info.setText(sb.toString());
+    }
+
+    private void toggleAuto() {
+        set.autoAnalysis = !set.autoAnalysis;
+        set.save(this);
+        updateAutoButton();
+        autoSeq++;
+        if (set.autoAnalysis) scheduleAuto();
+        else { view.setMarks(null); info.setText(""); }
+    }
+
+    private void updateAutoButton() {
+        autoButton.setText("Auto: " + (set.autoAnalysis ? "zap" : "vyp"));
+    }
+
+    /** Automatické zobrazení nejlepších tahů po každé změně pozice. */
+    private void scheduleAuto() {
+        autoSeq++;
+        if (autoButton == null || !set.autoAnalysis || revActive()) return;
+        final int seq = autoSeq;
+        final int g = gen;
+        ui.postDelayed(new Runnable() {
+            public void run() {
+                if (seq != autoSeq || g != gen || busy) return;
+                if ((board.cnt > 0 && board.wins(board.lastMove())) || board.cnt >= N * N) return;
+                info.setText("Automatická analýza…");
+                final Board snap = board.copy();
+                final int stm = snap.stm;
+                final long ms = Math.max(1500, Settings.LEVEL_MS[set.level] / 4);
+                pool.execute(new Runnable() {
+                    public void run() {
+                        if (seq != autoSeq) return;
+                        final Engine.Analysis a = engine.analyze(snap, ms, 3);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (seq != autoSeq || g != gen || busy || a.moves.length == 0) return;
+                                showAnalysis(a, stm, true);
+                            }
+                        });
+                    }
+                });
+            }
+        }, 450);
+    }
+
     private void analyze() {
         if (busy) return;
+        autoSeq++;
         busy = true;
         view.setMarks(null);
         info.setText("Analyzuji pozici…");
@@ -375,23 +454,7 @@ public class LabActivity extends Activity {
                             info.setText("Žádný tah k analýze.");
                             return;
                         }
-                        view.setMarks(a.moves);
-                        StringBuilder sb = new StringBuilder();
-                        sb.append(Texts.evalBlack(a.scores[0], stm, a.mate)).append("\nNejlepší tahy (").append(Texts.colorName(stm)).append("): ");
-                        for (int k = 0; k < a.moves.length; k++) {
-                            if (k > 0) sb.append(",  ");
-                            sb.append(k + 1).append(". ").append(Texts.cell(a.moves[k], N))
-                                    .append(" (").append(Texts.shortScore(a.scores[k])).append(")");
-                            if (a.equiv != null && k < a.equiv.length && a.equiv[k].length > 0) {
-                                sb.append(" = ");
-                                for (int q = 0; q < a.equiv[k].length; q++) {
-                                    if (q > 0) sb.append("/");
-                                    sb.append(Texts.cell(a.equiv[k][q], N));
-                                }
-                            }
-                        }
-                        sb.append("\nHloubka ").append(a.depth).append(".");
-                        info.setText(sb.toString());
+                        showAnalysis(a, stm, false);
                     }
                 });
             }
@@ -408,7 +471,7 @@ public class LabActivity extends Activity {
         final long ms = Settings.LEVEL_MS[set.level];
         pool.execute(new Runnable() {
             public void run() {
-                final Engine.Result r = engine.think(snap, ms, 30);
+                final Engine.Result r = engine.thinkBest(snap, ms, 30);
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
@@ -497,6 +560,7 @@ public class LabActivity extends Activity {
                         revScore = score;
                         revBest = best;
                         revLoss = loss;
+                        revStats = null;
                         reviewReady = true;
                         revLine = reviewLine;
                         if (line == reviewLine) {
@@ -524,9 +588,23 @@ public class LabActivity extends Activity {
         StringBuilder sb = new StringBuilder("Rozbor hotov. ");
         for (int m = 0; m < revLoss.length; m++) if (revLoss[m] >= 250) count++;
         sb.append(count == 0 ? "Žádné výrazné chyby." : "Výrazných chyb: " + count + ". Tlačítkem „Chyba >“ je projdeš.");
+        sb.append("\n").append(stats().summary());
         sb.append("\n").append(positionEval());
         info.setText(sb.toString());
         showBest();
+        updateGraph();
+    }
+
+    private ReviewStats stats() {
+        if (revStats == null) revStats = new ReviewStats(revScore, revBest, revLoss, moves, set.rules == 1, N);
+        return revStats;
+    }
+
+    private void updateGraph() {
+        if (!revActive()) { graph.setVisibility(View.GONE); return; }
+        ReviewStats st = stats();
+        graph.setVisibility(View.VISIBLE);
+        graph.setData(st.series, st.clsArr, cursor);
     }
 
     private String positionEval() {
@@ -548,6 +626,7 @@ public class LabActivity extends Activity {
         view.setMarks(null);
         if (!revActive()) {
             info.setText("");
+            graph.setVisibility(View.GONE);
             return;
         }
         StringBuilder sb = new StringBuilder();
@@ -568,8 +647,11 @@ public class LabActivity extends Activity {
         if (cursor < revBest.length && revBest[cursor] >= 0) {
             sb.append("\nZeleně: nejlepší pokračování ").append(Texts.cell(revBest[cursor], N)).append(".");
         }
+        ReviewStats st = stats();
+        sb.append("\nŠance černého na výhru: ").append(Math.round(st.series[Math.min(cursor, st.series.length - 1)] * 100)).append(" %");
         info.setText(sb.toString());
         showBest();
+        updateGraph();
     }
 
     private void nextMistake() {

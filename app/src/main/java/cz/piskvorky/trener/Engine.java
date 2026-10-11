@@ -79,6 +79,45 @@ final class Engine {
         Arrays.fill(tk, 0L);
     }
 
+    private final java.util.Random fastRnd = new java.util.Random();
+
+    /**
+     * Hlavní volba tahu: rychlé úzké hledání (volná pravidla) + kontrola soupeřova VCT;
+     * jinak (přesně pět, nebo problém) původní hledání.
+     */
+    Result thinkBest(Board src, long millis, int maxDepth) {
+        int stm = src.stm, opp = 3 - stm;
+        int[] f = new int[2];
+        if (src.exactFive || src.cnt == 0 || src.fiveCells(stm, f) > 0 || src.fiveCells(opp, f) > 0) {
+            return think(src, millis, maxDepth);
+        }
+        long t0 = System.currentTimeMillis();
+        FastEngine fe = FastEngine.fromBoard(src);
+        FastEngine.Result r = fe.think(stm, Math.max(200, millis * 3 / 4), 18, new FastEngine.Config(), fastRnd);
+        if (r.move < 0 || src.c[r.move] != Board.EMPTY) return think(src, millis, maxDepth);
+        boolean mate = Math.abs(r.value) >= 5000000;
+        Result out = new Result();
+        out.move = r.move;
+        out.mate = mate;
+        out.score = mate ? (r.value > 0 ? WIN - 40 : -(WIN - 40)) : (int) Math.round(r.value * 0.65);
+        out.depth = r.depth;
+        out.nodes = r.nodes;
+        if (mate && r.value > 0) return out;
+        // kontrola: nemá soupeř po tomto tahu vynucenou výhru (VCT)?
+        setup(src, Math.max(200, millis - (System.currentTimeMillis() - t0)));
+        b.place(r.move);
+        boolean lose = false;
+        if (!b.wins(r.move)) {
+            deadline = System.currentTimeMillis() + Math.max(100, millis * 2 / 10);
+            vctBudget = 150000;
+            lose = vctAttack(opp, 8, false);
+            if (timeUp) lose = false;
+        }
+        b.undo();
+        if (!lose) return out;
+        return think(src, Math.max(300, millis * 4 / 10), maxDepth);
+    }
+
     /** Hodnocení odehraného tahu: nejlepší tah a skóre vs. skóre odehraného tahu (stejná hloubka). */
     static final class ReviewResult {
         int best = -1;

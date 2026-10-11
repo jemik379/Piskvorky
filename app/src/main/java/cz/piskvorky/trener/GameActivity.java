@@ -341,7 +341,7 @@ public class GameActivity extends Activity {
         final long ms = Settings.LEVEL_MS[set.level];
         pool.execute(new Runnable() {
             public void run() {
-                final Engine.Result r = engine.think(snap, ms, 30);
+                final Engine.Result r = engine.thinkBest(snap, ms, 30);
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
@@ -475,7 +475,7 @@ public class GameActivity extends Activity {
         final long ms = Math.max(3000, Settings.LEVEL_MS[set.level]);
         pool.execute(new Runnable() {
             public void run() {
-                final Engine.Result r = engine.think(snap, ms, 30);
+                final Engine.Result r = engine.thinkBest(snap, ms, 30);
                 ui.post(new Runnable() {
                     public void run() {
                         if (g != gen) return;
