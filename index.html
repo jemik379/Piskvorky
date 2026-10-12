@@ -35,6 +35,19 @@
   .choice .t { font-size: 15px; margin-bottom: 4px; }
   canvas.graph { height: 90px; max-width: 560px; margin: 2px auto 6px; background: #fff; border: 1px solid #ddd; }
   .note { color: #666; font-size: 13px; margin-top: 16px; }
+  .hitem { display: flex; gap: 10px; align-items: center; padding: 8px; margin-top: 6px; background: #fff; border: 1px solid #ddd; border-radius: 10px; cursor: pointer; }
+  .hitem:active { background: #f3efe0; }
+  .hitem canvas { width: 64px; height: 64px; max-width: none; margin: 0; flex: none; }
+  .hitem .tx { min-width: 0; flex: 1; }
+  .hitem .t1 { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+  .hitem .t2 { font-size: 13px; color: #555; margin-top: 2px; }
+  .sheet-bg { position: fixed; left: 0; right: 0; top: 0; bottom: 0; background: rgba(0,0,0,.4); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet { background: #faf9f4; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .sheet .st { font-weight: 700; font-size: 17px; overflow-wrap: anywhere; }
+  .sheet button { display: block; width: 100%; margin-top: 6px; padding: 13px; font-size: 16px; }
+  .sheet button.danger { color: #a01818; }
+  textarea { display: block; width: 100%; height: 120px; margin-top: 8px; padding: 8px; font-size: 14px; border-radius: 8px; border: 1px solid #bbb; }
+  input[type=file] { display: block; margin-top: 8px; font-size: 14px; max-width: 100%; }
   .toast { position: fixed; left: 10px; right: 10px; bottom: 16px; max-width: 580px; margin: 0 auto;
     background: #333; color: #fff; padding: 12px 14px; border-radius: 10px; font-size: 15px; z-index: 10; }
 </style>
@@ -52,9 +65,11 @@
   <label>Vzhled desky<select id="s_style"></select></label>
   <label class="cb" id="l_center"><input type="checkbox" id="c_center"> První černý kámen vždy uprostřed</label>
   <label class="cb"><input type="checkbox" id="c_numbers"> Zobrazovat čísla tahů</label>
+  <label class="cb"><input type="checkbox" id="c_autosave"> Automaticky ukládat dohrané partie</label>
   <button id="b_start" class="primary wide">Začít hru</button>
   <button id="b_lab" class="wide">Volná deska / Analýza</button>
   <button id="b_pz" class="wide">Puzzly – vynucená výhra</button>
+  <button id="b_hist" class="wide">Uložené partie</button>
   <p class="note">Na iPhonu: otevři stránku v Safari, klepni na Sdílet a pak Přidat na plochu. AI počítá přímo v telefonu, vyšší úrovně chvíli přemýšlejí.</p>
 </div>
 
@@ -77,6 +92,9 @@
     <button id="g_new">Nová</button>
     <button id="g_style">Vzhled</button>
     <button id="g_menu">Menu</button>
+  </div>
+  <div class="row">
+    <button id="g_save">Uložit partii</button><button id="g_hist">Uložené partie</button>
   </div>
 </div>
 
@@ -106,6 +124,9 @@
   <div class="row">
     <button id="l_stm">Na tahu</button><button id="l_play">Hrát odtud</button><button id="l_style">Vzhled</button><button id="l_menu">Menu</button>
   </div>
+  <div class="row">
+    <button id="l_save">Uložit partii</button><button id="l_hist">Uložené partie</button>
+  </div>
 </div>
 
 <div id="pz" class="screen hidden">
@@ -115,9 +136,42 @@
   <div id="p_info" class="info"></div>
   <div class="row">
     <button id="p_hint">Tip</button><button id="p_solve">Řešení</button><button id="p_again">Znovu</button>
-    <button id="p_next">Další</button><button id="p_gen">Generovat</button><button id="p_style">Vzhled</button><button id="p_menu">Menu</button>
+    <button id="p_next">Další</button><button id="p_gen">Generovat</button>
+  </div>
+  <div class="row">
+    <button id="p_analyze">Analýza pozice</button><button id="p_style">Vzhled</button><button id="p_menu">Menu</button>
   </div>
 </div>
+
+<div id="hist" class="screen hidden">
+  <h1>Uložené partie</h1>
+  <p class="sub">Klepni na partii: otevřeš ji v analýze, spustíš rozbor, přejmenuješ, sdílíš nebo smažeš. Partie jsou uložené jen v tomto prohlížeči, na jiné zařízení je přeneseš exportem.</p>
+  <div id="h_empty" class="note">Zatím nic. Partii uložíš tlačítkem Uložit partii ve hře nebo v analýze. Dohrané partie se ukládají samy, pokud to nevypneš v menu.</div>
+  <div id="h_list"></div>
+  <div class="row" style="margin-top:10px">
+    <button id="h_export">Export</button><button id="h_import">Import</button><button id="h_clear">Smazat vše</button><button id="h_back">Zpět</button>
+  </div>
+</div>
+
+<div id="h_sheet" class="sheet-bg hidden"><div class="sheet">
+  <div id="h_sheet_t" class="st"></div>
+  <div id="h_sheet_s" class="note" style="margin-top:2px"></div>
+  <button id="h_open">Otevřít v analýze</button>
+  <button id="h_rev">Spustit rozbor partie</button>
+  <button id="h_ren">Přejmenovat</button>
+  <button id="h_share">Sdílet / kopírovat text</button>
+  <button id="h_del" class="danger">Smazat</button>
+  <button id="h_close">Zavřít</button>
+</div></div>
+
+<div id="h_imp" class="sheet-bg hidden"><div class="sheet">
+  <div class="st">Importovat partie</div>
+  <div class="note" style="margin-top:2px">Vlož text exportu (JSON) nebo text sdílené partie z Androidu (řádek „Tahy: 1.H8(Č) 2.I8(B) …“), případně vyber soubor.</div>
+  <textarea id="h_text" placeholder="Sem vlož text…"></textarea>
+  <input type="file" id="h_file" accept=".json,.txt,application/json,text/plain">
+  <button id="h_imp_go" class="primary">Importovat</button>
+  <button id="h_imp_close">Zavřít</button>
+</div></div>
 
 <div id="toast" class="toast hidden"></div>
 
@@ -2015,7 +2069,7 @@ const LEVEL = ['Rychlá (0,5 s)', 'Normální (2 s)', 'Silná (6 s)', 'Expert (1
 const LEVEL_MS = [500, 2000, 6000, 15000, 40000];
 const RULES = ['Gomoku (pět a více)', 'Přesně pět (šestka neplatí)'];
 const STYLE = ['Gomoku (kameny na průsečnících)', 'Piškvorky (křížky a kolečka ve čtvercích)'];
-const set = { opening: 2, role: 2, color: 2, level: 3, rules: 0, centerFirst: true, numbers: true, style: 0, autoAnalysis: false };
+const set = { opening: 2, role: 2, color: 2, level: 3, rules: 0, centerFirst: true, numbers: true, style: 0, autoAnalysis: false, autoSave: true };
 try { Object.assign(set, JSON.parse(localStorage.getItem('pt_set') || '{}')); } catch (e) { /* nic */ }
 function saveSet() { try { localStorage.setItem('pt_set', JSON.stringify(set)); } catch (e) { /* nic */ } }
 
@@ -2083,7 +2137,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 function show(name) {
-  for (const s of ['menu', 'game', 'lab', 'pz']) $(s).classList.toggle('hidden', s !== name);
+  for (const s of ['menu', 'game', 'lab', 'pz', 'hist']) $(s).classList.toggle('hidden', s !== name);
   window.scrollTo(0, 0);
 }
 function evalBlackText(scoreStm, stm, mate) {
@@ -2256,7 +2310,7 @@ class BoardCanvas {
 /* =====================================================================
    HRA
    ===================================================================== */
-const G = { board: null, phase: 'OVER', toPlace: 0, human: 0, playStart: 0, gen: 0, busy: false };
+const G = { board: null, phase: 'OVER', toPlace: 0, human: 0, playStart: 0, gen: 0, busy: false, savedId: 0, result: '' };
 const gbc = new BoardCanvas($('g_canvas'), c => gCell(c));
 const gStatus = t => { $('g_status').textContent = t; };
 const gInfo = t => { $('g_info').textContent = t; };
@@ -2264,7 +2318,7 @@ const gInfo = t => { $('g_info').textContent = t; };
 function gHideChoice() { $('g_choice').classList.add('hidden'); }
 
 function gNewGame() {
-  G.gen++; cancelAll(); gHideChoice(); G.busy = false;
+  G.gen++; cancelAll(); gHideChoice(); G.busy = false; G.savedId = 0; G.result = '';
   G.board = new Board(N);
   G.board.exactFive = set.rules === 1;
   gbc.showNumbers = set.numbers;
@@ -2298,7 +2352,7 @@ function gNewGame() {
 }
 
 function gStartFromPosition(stones, stm, human) {
-  G.gen++; cancelAll(); gHideChoice(); G.busy = false;
+  G.gen++; cancelAll(); gHideChoice(); G.busy = false; G.savedId = 0; G.result = '';
   const b = new Board(N);
   b.exactFive = set.rules === 1;
   for (let k = 0; k < stones.length; k += 2) b.placeAs(stones[k], stones[k + 1]);
@@ -2346,9 +2400,16 @@ function gCheckEnd(cell) {
     G.phase = 'OVER';
     gbc.winLine = b.winLine(cell); gbc.draw();
     gStatus(b.c[cell] === G.human ? 'Vyhrál jsi! 🎉' : 'AI vyhrála. Zkus to znovu nebo si vyžádej Tip.');
+    G.result = 'Vyhrál ' + colorName(b.c[cell]) + (b.c[cell] === G.human ? ' (ty)' : ' (AI)');
+    if (set.autoSave) gSave(true);
     return true;
   }
-  if (b.cnt >= N * N) { G.phase = 'OVER'; gStatus('Remíza – deska je plná.'); return true; }
+  if (b.cnt >= N * N) {
+    G.phase = 'OVER'; gStatus('Remíza – deska je plná.');
+    G.result = 'Remíza';
+    if (set.autoSave) gSave(true);
+    return true;
+  }
   return false;
 }
 
@@ -2535,12 +2596,23 @@ function lSwitch(i) {
   if (!activeRev()) lInfo((i === 0 ? 'Původní tahy' : 'Větev ' + (i + 1)) + ': ' + L.moves.length + ' tahů, zobrazeno ' + L.cursor + ' (tlačítko >| ukáže všechny).');
 }
 
-function labOpen(stones, review) {
+function labOpen(stones, review, extra) {
   L.gen++; cancelAll(); L.busy = false;
+  L.from = (extra && extra.from) || '';                           // odkud se přišlo (puzzle = tlačítko zpět)
+  $('l_menu').textContent = L.from === 'pz' ? 'Puzzle' : 'Menu';
   L.moves = []; L.cursor = 0; L.forcedStm = 0; L.rev = null;
   L.lines = [{ moves: L.moves, cursor: 0 }]; L.line = 0; L.revLine = 0;
   $('l_choice').classList.add('hidden');
   if (stones) { for (let k = 0; k < stones.length; k += 2) L.moves.push([stones[k], stones[k + 1]]); L.cursor = L.moves.length; L.lines[0].cursor = L.cursor; }
+  if (extra && extra.lines && extra.lines.length > 1) {          // uložená analýza s větvemi
+    L.lines = extra.lines.map(f => { const mv = pairsOf(f); return { moves: mv, cursor: mv.length }; });
+    L.line = Math.min(Math.max(extra.line | 0, 0), L.lines.length - 1);
+    L.moves = L.lines[L.line].moves; L.cursor = L.moves.length;
+  }
+  if (extra && extra.stm && L.cursor === L.moves.length) {        // volně postavená pozice může mít jiného hráče na tahu
+    const def = L.moves.length ? 3 - L.moves[L.moves.length - 1][1] : BLACK;
+    if (extra.stm !== def) L.forcedStm = extra.stm;
+  }
   lSetTool(0);
   show('lab');
   lRebuild();
@@ -2860,7 +2932,346 @@ $('l_delbranch').onclick = lDeleteBranch;
 $('l_play').onclick = lPlayFromHere;
 $('l_pb').onclick = () => lStartGame(BLACK);
 $('l_pw').onclick = () => lStartGame(WHITE);
-$('l_menu').onclick = () => { L.gen++; cancelAll(); L.busy = false; show('menu'); };
+$('l_menu').onclick = () => {
+  L.gen++; cancelAll(); L.busy = false;
+  if (L.from === 'pz' && PZ.board) { show('pz'); pbc.draw(); } else show('menu');
+};
+
+/* =====================================================================
+   HISTORIE PARTIÍ (uložené v prohlížeči, localStorage)
+   ===================================================================== */
+const H = { games: [], from: 'menu', sel: null, warned: false };
+const pairsOf = f => { const a = []; for (let k = 0; k < f.length; k += 2) a.push([f[k], f[k + 1]]); return a; };
+const flatOf = moves => { const a = []; for (const m of moves) a.push(m[0], m[1]); return a; };
+
+/* ověří řadu tahů [pole, barva, ...]; vrací očištěné pole nebo null */
+function hCleanMoves(m) {
+  if (!Array.isArray(m) || m.length % 2 || m.length > 2 * N * N) return null;
+  const seen = new Set(), out = [];
+  for (let k = 0; k < m.length; k += 2) {
+    const c = m[k], col = m[k + 1];
+    if (!Number.isInteger(c) || c < 0 || c >= N * N || (col !== BLACK && col !== WHITE) || seen.has(c)) return null;
+    seen.add(c); out.push(c, col);
+  }
+  return out;
+}
+function hClean(g) {
+  if (!g || typeof g !== 'object') return null;
+  const moves = hCleanMoves(g.moves);
+  if (!moves) return null;
+  const r = {
+    id: typeof g.id === 'string' && g.id ? g.id.slice(0, 40) : hNewId(),
+    name: String(g.name || 'Partie').slice(0, 80),
+    created: Number.isFinite(g.created) ? g.created : Date.now(),
+    result: String(g.result || '').slice(0, 80),
+    moves,
+    stm: g.stm === BLACK || g.stm === WHITE ? g.stm : (moves.length ? 3 - moves[moves.length - 1] : BLACK),
+    exact: !!g.exact
+  };
+  if (Array.isArray(g.lines) && g.lines.length > 1 && g.lines.length <= 30) {
+    const ls = g.lines.map(hCleanMoves);
+    if (ls.every(Boolean)) { r.lines = ls; r.line = Math.min(Math.max(g.line | 0, 0), ls.length - 1); r.moves = ls[r.line]; }
+  }
+  return r;
+}
+const hNewId = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function hDefaultName() {
+  const d = new Date(), p = v => (v < 10 ? '0' : '') + v;
+  return 'Partie ' + d.getDate() + '.' + (d.getMonth() + 1) + '. ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function hLoad() {
+  try {
+    const a = JSON.parse(localStorage.getItem('pt_games') || '[]');
+    if (Array.isArray(a)) H.games = a.map(hClean).filter(Boolean);
+  } catch (e) { H.games = []; }
+}
+function hPersist() {
+  try { localStorage.setItem('pt_games', JSON.stringify(H.games)); return true; } catch (e) {
+    if (!H.warned) { H.warned = true; toast('Prohlížeč neumožňuje ukládání, partie zůstanou jen do zavření stránky.'); }
+    return false;
+  }
+}
+function hCount() { $('b_hist').textContent = 'Uložené partie' + (H.games.length ? ' (' + H.games.length + ')' : ''); }
+function hAdd(name, result, moves, stm, exact, extra) {
+  const g = hClean(Object.assign({ id: hNewId(), name, created: Date.now(), result, moves, stm, exact }, extra || {}));
+  if (!g) return null;
+  H.games.unshift(g);
+  hPersist(); hCount();
+  return g;
+}
+
+/* ---------- ukládání z her a z analýzy ---------- */
+function gSave(auto) {
+  const b = G.board;
+  if (!b || b.cnt === 0) { if (!auto) toast('Zatím není co uložit.'); return; }
+  const over = G.phase === 'OVER';
+  const result = over && G.result ? G.result : 'Rozehráno' + (G.human ? ' (ty: ' + colorName(G.human) + ')' : '');
+  const mv = flat(b);
+  let g = G.savedId ? H.games.find(x => x.id === G.savedId) : null;
+  let name = g ? g.name : hDefaultName();
+  if (!auto) {
+    const n = window.prompt('Název partie:', name);
+    if (n === null) return;
+    name = n.trim() || name;
+  }
+  if (g) {
+    g.name = name.slice(0, 80); g.result = result; g.moves = mv; g.stm = b.stm; g.exact = !!b.exactFive;
+    hPersist();
+  } else {
+    g = hAdd(name, result, mv, b.stm, b.exactFive);
+    if (!g) return;
+    G.savedId = g.id;
+  }
+  toast('Partie uložena do historie.');
+}
+function lSave() {
+  const total = L.lines.reduce((a, l) => a + l.moves.length, 0);
+  if (!total) { toast('Zatím není co uložit.'); return; }
+  const moves = flatOf(L.moves);
+  const stm = (L.forcedStm && L.cursor === L.moves.length) ? L.forcedStm
+    : (L.moves.length ? 3 - L.moves[L.moves.length - 1][1] : BLACK);
+  const extra = L.lines.length > 1 ? { lines: L.lines.map(l => flatOf(l.moves)), line: L.line } : null;
+  const key = JSON.stringify([moves, extra && extra.lines]);
+  if (H.games.some(g => JSON.stringify([g.moves, g.lines || null]) === key && g.exact === (set.rules === 1))) {
+    toast('Tato partie už v historii je.'); return;
+  }
+  const name = window.prompt('Název partie:', hDefaultName());
+  if (name === null) return;
+  const result = 'Volná deska / analýza' + (extra ? ' (' + extra.lines.length + ' větve)' : '');
+  if (hAdd(name.trim() || hDefaultName(), result, moves, stm, set.rules === 1, extra)) toast('Partie uložena do historie.');
+}
+
+/* ---------- náhled desky ---------- */
+function hThumb(cv, moves) {
+  const sz = 64, dpr = window.devicePixelRatio || 1;
+  cv.width = cv.height = Math.round(sz * dpr);
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sq = set.style === 1;
+  let x0 = N, y0 = N, x1 = -1, y1 = -1;
+  for (let k = 0; k < moves.length; k += 2) {
+    const x = moves[k] % N, y = (moves[k] / N) | 0;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) { x0 = y0 = 0; x1 = y1 = N - 1; }
+  const span = Math.min(N, Math.max(9, Math.max(x1 - x0, y1 - y0) + 3));
+  const ox = Math.max(0, Math.min(N - span, Math.round((x0 + x1) / 2 - (span - 1) / 2)));
+  const oy = Math.max(0, Math.min(N - span, Math.round((y0 + y1) / 2 - (span - 1) / 2)));
+  const s = sz / span;
+  const P = (x, y) => [(x - ox + 0.5) * s, (y - oy + 0.5) * s];
+  ctx.fillStyle = sq ? '#fbfbf2' : '#deb864'; ctx.fillRect(0, 0, sz, sz);
+  ctx.strokeStyle = sq ? '#8fb8e0' : '#5a461e'; ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  for (let i = 0; i < span; i++) {
+    if (sq) { const p = i * s; ctx.moveTo(0, p); ctx.lineTo(sz, p); ctx.moveTo(p, 0); ctx.lineTo(p, sz); }
+    else { const p = (i + 0.5) * s; ctx.moveTo(0.5 * s, p); ctx.lineTo(sz - 0.5 * s, p); ctx.moveTo(p, 0.5 * s); ctx.lineTo(p, sz - 0.5 * s); }
+  }
+  ctx.stroke();
+  const last = moves.length - 2;
+  for (let k = 0; k < moves.length; k += 2) {
+    const [cx, cy] = P(moves[k] % N, (moves[k] / N) | 0), black = moves[k + 1] === BLACK;
+    if (sq) {
+      ctx.lineWidth = Math.max(1.2, s * 0.14); ctx.lineCap = 'round';
+      ctx.strokeStyle = black ? '#1f5fd1' : '#d62828';
+      ctx.beginPath();
+      if (black) { const d = s * 0.3; ctx.moveTo(cx - d, cy - d); ctx.lineTo(cx + d, cy + d); ctx.moveTo(cx - d, cy + d); ctx.lineTo(cx + d, cy - d); }
+      else ctx.arc(cx, cy, s * 0.31, 0, 7);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = black ? '#141414' : '#f8f8f8';
+      ctx.beginPath(); ctx.arc(cx, cy, s * 0.44, 0, 7); ctx.fill();
+      ctx.lineWidth = 0.6; ctx.strokeStyle = '#3c3c3c'; ctx.stroke();
+    }
+    if (k === last) { ctx.fillStyle = '#e62828'; ctx.beginPath(); ctx.arc(cx, cy, Math.max(1.5, s * 0.14), 0, 7); ctx.fill(); }
+  }
+}
+
+/* ---------- seznam ---------- */
+const hDate = t => new Date(t).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+function hRender() {
+  const list = $('h_list');
+  list.innerHTML = '';
+  const games = H.games.slice().sort((a, b) => b.created - a.created);
+  $('h_empty').classList.toggle('hidden', games.length > 0);
+  for (const g of games) {
+    const it = document.createElement('div'); it.className = 'hitem';
+    const cv = document.createElement('canvas');
+    const tx = document.createElement('div'); tx.className = 'tx';
+    const t1 = document.createElement('div'); t1.className = 't1'; t1.textContent = g.name;
+    const t2 = document.createElement('div'); t2.className = 't2';
+    t2.textContent = hDate(g.created) + ' • ' + g.moves.length / 2 + ' kamenů' + (g.result ? ' • ' + g.result : '');
+    tx.appendChild(t1); tx.appendChild(t2);
+    it.appendChild(cv); it.appendChild(tx);
+    it.onclick = () => hSheet(g);
+    list.appendChild(it);
+    hThumb(cv, g.moves);
+  }
+  hCount();
+}
+function hOpenScreen(from) {
+  H.from = from;
+  hRender();
+  show('hist');
+}
+function hBack() {
+  show(H.from);
+  if (H.from === 'game') gbc.draw(); else if (H.from === 'lab') lbc.draw();
+}
+function hSheet(g) {
+  H.sel = g;
+  $('h_sheet_t').textContent = g.name;
+  $('h_sheet_s').textContent = hDate(g.created) + ' • ' + g.moves.length / 2 + ' kamenů' + (g.result ? ' • ' + g.result : '')
+    + ' • ' + (g.exact ? 'přesně pět' : 'pět a více') + (g.lines ? ' • ' + g.lines.length + ' větve' : '');
+  $('h_sheet').classList.remove('hidden');
+}
+function hCloseSheet() { $('h_sheet').classList.add('hidden'); }
+function hOpenGame(review) {
+  const g = H.sel;
+  if (!g) return;
+  hCloseSheet();
+  const want = g.exact ? 1 : 0;
+  if (set.rules !== want) {
+    set.rules = want; $('s_rules').value = String(want); saveSet();
+    toast('Pravidla nastavena podle partie: ' + RULES[want] + '.');
+  }
+  G.gen++; cancelAll(); G.busy = false;
+  labOpen(g.moves, review, { stm: g.stm, lines: g.lines, line: g.line });
+}
+function hShareText(g) {
+  let s = 'Piškvorky trenér – ' + g.name + '\n' + g.result + '\nPravidla: ' + (g.exact ? 'přesně pět' : 'pět a více') + '\nTahy:';
+  for (let k = 0; k < g.moves.length; k += 2) s += ' ' + (k / 2 + 1) + '.' + cellName(g.moves[k]) + (g.moves[k + 1] === BLACK ? '(Č)' : '(B)');
+  return s;
+}
+function hCopy(text) {
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { /* nic */ }
+    document.body.removeChild(ta);
+    toast(ok ? 'Text partie zkopírován do schránky.' : 'Kopírování se nepodařilo.');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => toast('Text partie zkopírován do schránky.'), fallback);
+  } else fallback();
+}
+function hShare() {
+  const g = H.sel;
+  if (!g) return;
+  const text = hShareText(g);
+  hCloseSheet();
+  if (navigator.share) navigator.share({ title: g.name, text }).catch(() => { /* zrušeno */ });
+  else hCopy(text);
+}
+function hRename() {
+  const g = H.sel;
+  if (!g) return;
+  const n = window.prompt('Nový název partie:', g.name);
+  if (n === null || !n.trim()) return;
+  g.name = n.trim().slice(0, 80);
+  hPersist(); hCloseSheet(); hRender();
+}
+function hDelete() {
+  const g = H.sel;
+  if (!g) return;
+  if (!window.confirm('Smazat partii „' + g.name + '“?')) return;
+  H.games = H.games.filter(x => x !== g);
+  if (G.savedId === g.id) G.savedId = 0;
+  hPersist(); hCloseSheet(); hRender();
+}
+function hClear() {
+  if (!H.games.length) return;
+  if (!window.confirm('Smazat všech ' + H.games.length + ' uložených partií? Nejde to vrátit.')) return;
+  H.games = []; G.savedId = 0;
+  hPersist(); hRender();
+}
+
+/* ---------- export / import ---------- */
+function hExport() {
+  if (!H.games.length) { toast('Není co exportovat.'); return; }
+  const json = JSON.stringify({ app: 'piskvorky-trener', version: 1, games: H.games });
+  try {
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'piskvorky-historie.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast('Exportováno ' + H.games.length + ' partií do souboru piskvorky-historie.json.');
+  } catch (e) { hCopy(json); }
+}
+/* text ze sdílení: "Tahy: 1.H8(Č) 2.I8(B) …" */
+function hParseText(txt) {
+  const mv = [], re = /(\d+)\s*\.\s*([A-Oa-o])\s*(\d{1,2})\s*\(\s*(Č|č|C|c|B|b)\s*\)/g;
+  const seq = [];
+  let m;
+  while ((m = re.exec(txt))) {
+    const x = m[2].toUpperCase().charCodeAt(0) - 65, y = +m[3] - 1;
+    if (y < 0 || y >= N) return null;
+    seq.push([+m[1], y * N + x, /[ČčCc]/.test(m[4]) ? BLACK : WHITE]);
+  }
+  if (!seq.length) return null;
+  seq.sort((a, b) => a[0] - b[0]);
+  for (const s of seq) mv.push(s[1], s[2]);
+  const nm = /Piškvorky trenér\s*[–-]\s*(.+)/.exec(txt);
+  const lines = txt.split(/\r?\n/);
+  const res = nm && lines.length > 1 && !/^(Pravidla|Tahy)/.test(lines[1].trim()) ? lines[1].trim() : 'Importováno';
+  return { name: nm ? nm[1].trim() : 'Importovaná partie', result: res, moves: mv,
+    exact: /Pravidla:\s*přesně pět/i.test(txt), created: Date.now() };
+}
+function hImport() {
+  const txt = $('h_text').value.trim();
+  if (!txt) { toast('Nejdřív vlož text nebo vyber soubor.'); return; }
+  let items = null;
+  try {
+    const j = JSON.parse(txt);
+    items = Array.isArray(j) ? j : (j && Array.isArray(j.games) ? j.games : [j]);
+  } catch (e) {
+    const g = hParseText(txt);
+    if (g) items = [g];
+  }
+  if (!items) { toast('Text se nepodařilo přečíst. Čekám export (JSON) nebo sdílený text s řádkem „Tahy: …“.'); return; }
+  let added = 0, skipped = 0;
+  for (const raw of items) {
+    const g = hClean(raw);
+    if (!g) { skipped++; continue; }
+    if (H.games.some(x => x.id === g.id || (x.name === g.name && JSON.stringify(x.moves) === JSON.stringify(g.moves)))) { skipped++; continue; }
+    H.games.push(g); added++;
+  }
+  if (added) hPersist();
+  hRender();
+  $('h_imp').classList.add('hidden');
+  $('h_text').value = '';
+  toast('Importováno: ' + added + (skipped ? ', přeskočeno: ' + skipped : '') + '.');
+}
+$('h_file').onchange = ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { $('h_text').value = String(r.result || ''); };
+  r.readAsText(f);
+};
+
+$('b_hist').onclick = () => { readMenu(); hOpenScreen('menu'); };
+$('g_hist').onclick = () => hOpenScreen('game');
+$('l_hist').onclick = () => hOpenScreen('lab');
+$('g_save').onclick = () => gSave(false);
+$('l_save').onclick = lSave;
+$('h_back').onclick = hBack;
+$('h_export').onclick = hExport;
+$('h_import').onclick = () => { $('h_text').value = ''; $('h_file').value = ''; $('h_imp').classList.remove('hidden'); };
+$('h_clear').onclick = hClear;
+$('h_imp_go').onclick = hImport;
+$('h_imp_close').onclick = () => $('h_imp').classList.add('hidden');
+$('h_open').onclick = () => hOpenGame(false);
+$('h_rev').onclick = () => hOpenGame(true);
+$('h_ren').onclick = hRename;
+$('h_share').onclick = hShare;
+$('h_del').onclick = hDelete;
+$('h_close').onclick = hCloseSheet;
+for (const id of ['h_sheet', 'h_imp']) $(id).addEventListener('click', ev => { if (ev.target === $(id)) $(id).classList.add('hidden'); });
+hLoad(); hCount();
 
 /* =====================================================================
    MENU
@@ -2879,6 +3290,7 @@ fillSelect('s_rules', RULES, set.rules);
 fillSelect('s_style', STYLE, set.style);
 $('c_center').checked = !!set.centerFirst;
 $('c_numbers').checked = !!set.numbers;
+$('c_autosave').checked = set.autoSave !== false;
 
 function menuVisibility() {
   const swap = $('s_opening').value !== '0';
@@ -2898,6 +3310,7 @@ function readMenu() {
   set.style = +$('s_style').value;
   set.centerFirst = $('c_center').checked;
   set.numbers = $('c_numbers').checked;
+  set.autoSave = $('c_autosave').checked;
   saveSet();
 }
 $('b_start').onclick = () => { readMenu(); show('game'); gNewGame(); };
@@ -3058,6 +3471,14 @@ $('p_solve').onclick = async () => {
   pStatus('Řešení přehráno.'); pInfo('Zkus další úlohu.');
 };
 $('p_again').onclick = () => { if (PZ.cur) pzStart(PZ.cur); };
+/* analýza aktuální pozice puzzle ve volné desce (tlačítko Puzzle ji vrátí zpět k úloze) */
+$('p_analyze').onclick = () => {
+  const b = PZ.board;
+  if (!b || b.cnt === 0) return;
+  if (PZ.busy) { toast('Počkej, až soupeř odpoví nebo se dokončí hledání.'); return; }
+  labOpen(flat(b), false, { stm: b.stm, from: 'pz' });
+  lInfo('Pozice z puzzle. Tlačítko Analýza ukáže nejlepší tahy, tedy i řešení. Zpět k úloze se vrátíš tlačítkem Puzzle.');
+};
 $('p_next').onclick = pzNext;
 $('p_menu').onclick = () => { PZ.gen++; cancelAll(); PZ.busy = false; show('menu'); };
 for (let i = 0; i < 4; i++) $('p_l' + i).onclick = () => { PZ.lvl = i; PZ.idx = 0; pzLoad(); };
